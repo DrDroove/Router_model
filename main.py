@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pickle
+import  plotly.graph_objects as go
+import pandas as pd
+
 from concurrent.futures import ProcessPoolExecutor
 from statsmodels.tsa.stattools import acf
 from mpl_toolkits.mplot3d import Axes3D
@@ -126,75 +129,97 @@ def draw_lambdas_vs_overload():
     is_overloaded = np.array([item[0] for item in results])
     coordinates = np.array([item[1] for item in results])
 
-    x = coordinates[:, 0]
-    y = coordinates[:, 1]
-    z = coordinates[:, 2]
+    df = pd.DataFrame({
+        'x': [item[1][0] for item in results],
+        'y': [item[1][1] for item in results],
+        'z': [item[1][2] for item in results],
+        'isOverloaded': [item[0] for  item in results]
+    })
 
-    colors = np.where(is_overloaded, 'r', 'g')
-    alpha = np.where(is_overloaded, 0.5, 1)
-    sizes = np.where(is_overloaded, 2, 10)
+    df['color_rgba'] = np.where(df['isOverloaded'], 'rgba(255,0,0,0)', 'rgba(0,128,0,1.0)')
+    df['text'] = np.where(df['isOverloaded'], 'Overloaded', 'Not overloaded')
+    
 
-    fig = plt.figure(figsize=(15, 15))
-    ax = fig.add_subplot(111, projection='3d')
-    scatter = ax.scatter(x,y,z,c=colors, s=sizes, alpha=alpha)
-    ax.set_xlabel('Lambda 1')
-    ax.set_ylabel('Lambda 2')
-    ax.set_zlabel('Lambda 3')
-    ax.set_title("Lambdas vs overload")
+    fig = go.Figure(data=[go.Scatter3d(
+        x=df['x'],
+        y=df['y'],
+        z=df['z'],
+        mode='markers',
+        marker=dict(
+            size=3,
+            color=df['color_rgba'],
+            # opacity=df['opacity'],
+            line=dict(width=0)
+        ),
+        text=df['text'],
+        hoverinfo='text'
+    )])
 
-    ax.view_init(elev=30, azim=60)
-    plt.savefig(os.path.join(output_dir, "lambdas_vs_overload.svg"), dpi=600)
+    fig.update_layout(
+        title='Lambdas vs Overload',
+        scene=dict(
+            xaxis_title='Lambda 1',
+            yaxis_title='Lambda 2',
+            zaxis_title='Lambda 3',
+        ),
+        margin=dict(l=0, r=0, b=0,  t=40)
+    )
+
+    html_filename = 'interactive_3_lambdas_vs_overload.html'
+    fig.write_html(html_filename)
+
+    # x = coordinates[:, 0]
+    # y = coordinates[:, 1]
+    # z = coordinates[:, 2]
+
+    # colors = np.where(is_overloaded, 'r', 'g')
+    # alpha = np.where(is_overloaded, 0.5, 1)
+    # sizes = np.where(is_overloaded, 2, 10)
 
     # fig = plt.figure(figsize=(15, 15))
-    # plt.scatter(x,y,c=colors, s=5, alpha=0.6)
-    # plt.xlabel('Lambda 1')
-    # plt.ylabel('Lambda 2')
-    # plt.savefig(os.path.join(output_dir, "lambda1_2_vs_overload.svg"), dpi=600)
+    # ax = fig.add_subplot(111, projection='3d')
+    # scatter = ax.scatter(x,y,z,c=colors, s=sizes, alpha=alpha)
+    # ax.set_xlabel('Lambda 1')
+    # ax.set_ylabel('Lambda 2')
+    # ax.set_zlabel('Lambda 3')
+    # ax.set_title("Lambdas vs overload")
 
-    # fig = plt.figure(figsize=(15, 15))
-    # plt.scatter(x,z,c=colors, s=5, alpha=0.6)
-    # plt.xlabel('Lambda 1')
-    # plt.ylabel('Lambda 3')
-    # plt.savefig(os.path.join(output_dir, "lambda1_3_vs_overload.svg"), dpi=600)
+    # ax.view_init(elev=30, azim=145)
+    # plt.savefig(os.path.join(output_dir, "lambdas_vs_overload.svg"), dpi=600)
 
-    # fig = plt.figure(figsize=(15, 15))
-    # plt.scatter(y,z,c=colors, s=5, alpha=0.6)
-    # plt.xlabel('Lambda 1')
-    # plt.ylabel('Lambda 2')
-    # plt.savefig(os.path.join(output_dir, "lambda1_2_vs_overload.svg"), dpi=600)
+    # x_min, y_min, z_min = np.min(coordinates,axis=0)
+    # eps = 1e-5
+    # fig, (ax1, ax2, ax3) = plt.subplots(1,3,figsize= (18,5))
+    # mask_z=np.abs(z-z_min)<eps
+    # ax1.scatter(x[mask_z],y[mask_z],c=colors[mask_z], s=10)
+    # ax1.set_title(f'Срез X-Y (Z={z_min:.2f})')
+    # ax1.set_xlabel('Lambda 1')
+    # ax1.set_ylabel('Lambda 2')
 
-    x_min, y_min, z_min = np.min(coordinates,axis=0)
-    eps = 1e-5
-    fig, (ax1, ax2, ax3) = plt.subplots(1,3,figsize= (18,5))
-    mask_z=np.abs(z-z_min)<eps
-    ax1.scatter(x[mask_z],y[mask_z],c=colors[mask_z], s=10)
-    ax1.set_title(f'Срез X-Y (Z={z_min:.2f})')
-    ax1.set_xlabel('Lambda 1')
-    ax1.set_ylabel('Lambda 2')
+    # mask_y=np.abs(y-y_min)<eps
+    # ax2.scatter(x[mask_y],z[mask_y],c=colors[mask_y], s=10)
+    # ax2.set_title(f'Срез X-Z (Y={y_min:.2f})')
+    # ax2.set_xlabel('Lambda 1')
+    # ax2.set_ylabel('Lambda 3')
 
-    mask_y=np.abs(y-y_min)<eps
-    ax2.scatter(x[mask_y],z[mask_y],c=colors[mask_y], s=10)
-    ax2.set_title(f'Срез X-Z (Y={y_min:.2f})')
-    ax2.set_xlabel('Lambda 1')
-    ax2.set_ylabel('Lambda 3')
-
-    mask_x=np.abs(x-x_min)<eps
-    ax3.scatter(y[mask_x],z[mask_x],c=colors[mask_x], s=10)
-    ax3.set_title(f'Срез Y-Z (X={x_min:.2f})')
-    ax3.set_xlabel('Lambda 2')
-    ax3.set_ylabel('Lambda 3')
+    # mask_x=np.abs(x-x_min)<eps
+    # ax3.scatter(y[mask_x],z[mask_x],c=colors[mask_x], s=10)
+    # ax3.set_title(f'Срез Y-Z (X={x_min:.2f})')
+    # ax3.set_xlabel('Lambda 2')
+    # ax3.set_ylabel('Lambda 3')
 
 
-    plt.tight_layout()
-    plt.savefig('progections.svg', dpi=600)
-    plt.close()
+    # plt.tight_layout()
+    # plt.savefig('progections.svg', dpi=600)
+    # plt.close()
+
 
 if __name__=='__main__':
 
-    # ARRAY_OF_LAMBDAS = generateLambdaMesh(4, 0.33)
+    # ARRAY_OF_LAMBDAS = generateLambdaMesh(4, 0.1)
     # results = []
     
-    # with ProcessPoolExecutor(max_workers=10) as executor:
+    # with ProcessPoolExecutor(max_workers=15) as executor:
     #     for res in executor.map(run_simulation, ARRAY_OF_LAMBDAS):
     #         results.append(res)
     # with open('lambdas_vs_overload.pkl', 'wb') as f:
