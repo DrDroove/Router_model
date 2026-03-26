@@ -208,7 +208,7 @@ def anylize_epsilon_optimization():
     min_general_wait_time = min(general_mean_wait_times)
     index_of_min_general_wait_time = general_mean_wait_times.index(min_general_wait_time)
 
-    print(f"All threads general optimal:\nGeneral Mean wait time: {results[index_of_min_general_wait_time][0]},\nMean wait times by threads:{results[index_of_min_general_wait_time][1]},\nEpsilons:{results[index_of_min_general_wait_time][2]}")
+    print(f"All threads general optimal:\nGeneral Mean wait time: {results[index_of_min_general_wait_time][0]},\nMean wait times by threads:{results[index_of_min_general_wait_time][1]},\nEpsilons:{results[index_of_min_general_wait_time][2]}\n")
 
     mean_wait_times_by_threads = [r[1] for r in results]
     for thread_idx in range(NUMBER_OF_THREADS):
@@ -217,8 +217,8 @@ def anylize_epsilon_optimization():
         min_wait_time = min(mean_wait_times)
         index_of_min_wait_time = mean_wait_times.index(min_wait_time)
 
-        print(f"Thread {thread_idx} marginal optimal:\nMin wait time: {min_wait_time},\nEpsilon:{results[index_of_min_wait_time][2][thread_idx]}")
-
+        print(f"Thread {thread_idx} marginal optimal:\nGeneral mean wait time:{results[index_of_min_wait_time][0]}\nMin wait time by threads: {results[index_of_min_wait_time][1]},\nEpsilons:{results[index_of_min_wait_time][2]}\n")
+        #print(f"All threads general optimal:\nGeneral Mean wait time: {results[index_of_min_general_wait_time][0]},\nMean wait times by threads:{results[index_of_min_general_wait_time][1]},\nEpsilons:{results[index_of_min_general_wait_time][2]}")
 if __name__=='__main__':
 
     # ARRAY_OF_LAMBDAS = generateLambdaMesh(4, 0.1)
@@ -230,16 +230,16 @@ if __name__=='__main__':
     # with open('lambdas_vs_overload.pkl', 'wb') as f:
     #     pickle.dump(results, f)
 
-    ARRAY_OF_EPSILONS = generateEpsilonMesh(T_MAX*CONNECTION_SPEED, 1)
-    results = []
+    # ARRAY_OF_EPSILONS = generateEpsilonMesh(T_MAX*CONNECTION_SPEED, 1)
+    # results = []
 
-    run_with_configured_lambdas = partial(run_simulation_for_epsilon_optimisation, (3,5,1))
+    # run_with_configured_lambdas = partial(run_simulation_for_epsilon_optimisation, (3,5,1))
     
-    with ProcessPoolExecutor(max_workers=12) as executor:
-        for res in executor.map(run_with_configured_lambdas, ARRAY_OF_EPSILONS):
-            results.append(res)
-    with open('epsilons_vs_mean_times.pkl', 'wb') as f:
-        pickle.dump(results, f)
+    # with ProcessPoolExecutor(max_workers=12) as executor:
+    #     for res in executor.map(run_with_configured_lambdas, ARRAY_OF_EPSILONS):
+    #         results.append(res)
+    # with open('epsilons_vs_mean_times.pkl', 'wb') as f:
+    #     pickle.dump(results, f)
 
     anylize_epsilon_optimization()
     
