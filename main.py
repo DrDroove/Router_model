@@ -243,9 +243,26 @@ if __name__=='__main__':
 
     anylize_epsilon_optimization()
     
-    #tmp = run_simulation((10,10,10))
-    #print(tmp[0])
-    #draw_lambdas_vs_overload()
+    # simulation = System((5,5,5))
+
+    # t = np.zeros(NUMBER_OF_THREADS)
+    # while True: #Income generation
+    #     array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
+    #     array_tau = -np.log(array_tau)/(1.5,2,1)
+    #     t += array_tau
+    #     if np.all(t > T_END):
+    #         break
+    #     for i in range(NUMBER_OF_THREADS):
+    #         if t[i]<= T_END:
+    #             random_size = np.random.uniform()
+    #             if random_size < PROBABILITY_OF_SMALL_GROUP:
+    #                 simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+    #             else:
+    #                 simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+    
+    # simulation.run()
+   
+    # drawAllGraphs(snapshots=simulation.snapshots, lambdas=(1.5,2,1))
 
     
     
