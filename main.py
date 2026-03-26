@@ -97,7 +97,7 @@ def run_simulation(lambdas):
     simulation = System()
 
     t = np.zeros(NUMBER_OF_THREADS)
-    while True:
+    while True: #Income generation
         array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
         array_tau = -np.log(array_tau)/lambdas
         t += array_tau
@@ -126,8 +126,6 @@ def draw_lambdas_vs_overload():
     os.makedirs(output_dir, exist_ok=True)
     with open('lambdas_vs_overload.pkl', 'rb') as f:
         results = pickle.load(f)
-    is_overloaded = np.array([item[0] for item in results])
-    coordinates = np.array([item[1] for item in results])
 
     df = pd.DataFrame({
         'x': [item[1][0] for item in results],
@@ -167,52 +165,6 @@ def draw_lambdas_vs_overload():
 
     html_filename = 'interactive_3_lambdas_vs_overload.html'
     fig.write_html(html_filename)
-
-    # x = coordinates[:, 0]
-    # y = coordinates[:, 1]
-    # z = coordinates[:, 2]
-
-    # colors = np.where(is_overloaded, 'r', 'g')
-    # alpha = np.where(is_overloaded, 0.5, 1)
-    # sizes = np.where(is_overloaded, 2, 10)
-
-    # fig = plt.figure(figsize=(15, 15))
-    # ax = fig.add_subplot(111, projection='3d')
-    # scatter = ax.scatter(x,y,z,c=colors, s=sizes, alpha=alpha)
-    # ax.set_xlabel('Lambda 1')
-    # ax.set_ylabel('Lambda 2')
-    # ax.set_zlabel('Lambda 3')
-    # ax.set_title("Lambdas vs overload")
-
-    # ax.view_init(elev=30, azim=145)
-    # plt.savefig(os.path.join(output_dir, "lambdas_vs_overload.svg"), dpi=600)
-
-    # x_min, y_min, z_min = np.min(coordinates,axis=0)
-    # eps = 1e-5
-    # fig, (ax1, ax2, ax3) = plt.subplots(1,3,figsize= (18,5))
-    # mask_z=np.abs(z-z_min)<eps
-    # ax1.scatter(x[mask_z],y[mask_z],c=colors[mask_z], s=10)
-    # ax1.set_title(f'Срез X-Y (Z={z_min:.2f})')
-    # ax1.set_xlabel('Lambda 1')
-    # ax1.set_ylabel('Lambda 2')
-
-    # mask_y=np.abs(y-y_min)<eps
-    # ax2.scatter(x[mask_y],z[mask_y],c=colors[mask_y], s=10)
-    # ax2.set_title(f'Срез X-Z (Y={y_min:.2f})')
-    # ax2.set_xlabel('Lambda 1')
-    # ax2.set_ylabel('Lambda 3')
-
-    # mask_x=np.abs(x-x_min)<eps
-    # ax3.scatter(y[mask_x],z[mask_x],c=colors[mask_x], s=10)
-    # ax3.set_title(f'Срез Y-Z (X={x_min:.2f})')
-    # ax3.set_xlabel('Lambda 2')
-    # ax3.set_ylabel('Lambda 3')
-
-
-    # plt.tight_layout()
-    # plt.savefig('progections.svg', dpi=600)
-    # plt.close()
-
 
 if __name__=='__main__':
 
