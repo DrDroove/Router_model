@@ -200,8 +200,8 @@ def draw_lambdas_vs_overload():
     html_filename = 'interactive_3_lambdas_vs_overload.html'
     fig.write_html(html_filename)
 
-def anylize_epsilon_optimization():
-    with open('epsilons_vs_mean_times.pkl', 'rb') as f:
+def anylize_epsilon_optimization(filename):
+    with open(filename, 'rb') as f:
         results = pickle.load(f)
 
     general_mean_wait_times = [r[0] for r in results]
@@ -218,7 +218,8 @@ def anylize_epsilon_optimization():
         index_of_min_wait_time = mean_wait_times.index(min_wait_time)
 
         print(f"Thread {thread_idx} marginal optimal:\nGeneral mean wait time:{results[index_of_min_wait_time][0]}\nMin wait time by threads: {results[index_of_min_wait_time][1]},\nEpsilons:{results[index_of_min_wait_time][2]}\n")
-        #print(f"All threads general optimal:\nGeneral Mean wait time: {results[index_of_min_general_wait_time][0]},\nMean wait times by threads:{results[index_of_min_general_wait_time][1]},\nEpsilons:{results[index_of_min_general_wait_time][2]}")
+
+
 if __name__=='__main__':
 
     # ARRAY_OF_LAMBDAS = generateLambdaMesh(4, 0.1)
@@ -230,7 +231,7 @@ if __name__=='__main__':
     # with open('lambdas_vs_overload.pkl', 'wb') as f:
     #     pickle.dump(results, f)
 
-    # ARRAY_OF_EPSILONS = generateEpsilonMesh(T_MAX*CONNECTION_SPEED, 1)
+    # ARRAY_OF_EPSILONS = generateEpsilonMesh(T_MAX*10, 1)
     # results = []
 
     # run_with_configured_lambdas = partial(run_simulation_for_epsilon_optimisation, (3,5,1))
@@ -241,7 +242,9 @@ if __name__=='__main__':
     # with open('epsilons_vs_mean_times.pkl', 'wb') as f:
     #     pickle.dump(results, f)
 
-    anylize_epsilon_optimization()
+    anylize_epsilon_optimization('epsilons_vs_mean_times_small_lambdas.pkl')
+    print('-'*50)
+    anylize_epsilon_optimization('epsilons_vs_mean_times_HighSpeed_mid_lambdas.pkl')
     
     #tmp = run_simulation((10,10,10))
     #print(tmp[0])
