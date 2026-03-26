@@ -2,9 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pickle
-import  plotly.graph_objects as go
+#import plotly.graph_objects as go
 import pandas as pd
 
+from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from statsmodels.tsa.stattools import acf
 from mpl_toolkits.mplot3d import Axes3D
@@ -93,8 +94,16 @@ def generateLambdaMesh(maxLambda, step):
                 lambdas.append((l1,l2,l3))
     return lambdas
 
-def run_simulation(lambdas):
-    simulation = System()
+def generateEpsilonMesh(Eps_max, step):
+    epsilons = []
+    for e1 in np.arange(0, Eps_max, step):
+        for e2 in np.arange(0, Eps_max, step):
+            for e3 in np.arange(0, Eps_max, step):
+                epsilons.append((e1,e2,e3))
+    return epsilons
+
+def run_simulation_for_stationary_mode(lambdas, epsilons):
+    simulation = System(epsilons)
 
     t = np.zeros(NUMBER_OF_THREADS)
     while True: #Income generation
@@ -121,9 +130,34 @@ def run_simulation(lambdas):
 
     return (isOverloaded(queues_lengths[-tail:], 50, 0.7), lambdas)
 
+def run_simulation_for_epsilon_optimisation(lambdas, epsilons):
+    simulation = System(epsilons)
+
+    t = np.zeros(NUMBER_OF_THREADS)
+    while True: #Income generation
+        array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
+        array_tau = -np.log(array_tau)/lambdas
+        t += array_tau
+        if np.all(t > T_END):
+            break
+        for i in range(NUMBER_OF_THREADS):
+            if t[i]<= T_END:
+                random_size = np.random.uniform()
+                if random_size < PROBABILITY_OF_SMALL_GROUP:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+                else:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+
+
+    simulation.run()
+
+    mean_wait_times_by_threads_last = simulation.snapshots[-1][5]
+
+    mean_wait_time = sum(mean_wait_times_by_threads_last)/len(mean_wait_times_by_threads_last)
+
+    return (mean_wait_time, mean_wait_times_by_threads_last, epsilons)
+
 def draw_lambdas_vs_overload():
-    output_dir = "plots"
-    os.makedirs(output_dir, exist_ok=True)
     with open('lambdas_vs_overload.pkl', 'rb') as f:
         results = pickle.load(f)
 
@@ -166,6 +200,25 @@ def draw_lambdas_vs_overload():
     html_filename = 'interactive_3_lambdas_vs_overload.html'
     fig.write_html(html_filename)
 
+def anylize_epsilon_optimization():
+    with open('epsilons_vs_mean_times.pkl', 'rb') as f:
+        results = pickle.load(f)
+
+    general_mean_wait_times = [r[0] for r in results]
+    min_general_wait_time = min(general_mean_wait_times)
+    index_of_min_general_wait_time = general_mean_wait_times.index(min_general_wait_time)
+
+    print(f"All threads general optimal:\nGeneral Mean wait time: {results[index_of_min_general_wait_time][0]},\nMean wait times by threads:{results[index_of_min_general_wait_time][1]},\nEpsilons:{results[index_of_min_general_wait_time][2]}")
+
+    mean_wait_times_by_threads = [r[1] for r in results]
+    for thread_idx in range(NUMBER_OF_THREADS):
+        mean_wait_times = [mt[thread_idx] for mt in mean_wait_times_by_threads]
+
+        min_wait_time = min(mean_wait_times)
+        index_of_min_wait_time = mean_wait_times.index(min_wait_time)
+
+        print(f"Thread {thread_idx} marginal optimal:\nMin wait time: {min_wait_time},\nEpsilon:{results[index_of_min_wait_time][2][thread_idx]}")
+
 if __name__=='__main__':
 
     # ARRAY_OF_LAMBDAS = generateLambdaMesh(4, 0.1)
@@ -176,10 +229,23 @@ if __name__=='__main__':
     #         results.append(res)
     # with open('lambdas_vs_overload.pkl', 'wb') as f:
     #     pickle.dump(results, f)
+
+    ARRAY_OF_EPSILONS = generateEpsilonMesh(T_MAX*CONNECTION_SPEED, 1)
+    results = []
+
+    run_with_configured_lambdas = partial(run_simulation_for_epsilon_optimisation, (3,5,1))
+    
+    with ProcessPoolExecutor(max_workers=12) as executor:
+        for res in executor.map(run_with_configured_lambdas, ARRAY_OF_EPSILONS):
+            results.append(res)
+    with open('epsilons_vs_mean_times.pkl', 'wb') as f:
+        pickle.dump(results, f)
+
+    anylize_epsilon_optimization()
     
     #tmp = run_simulation((10,10,10))
     #print(tmp[0])
-    draw_lambdas_vs_overload()
+    #draw_lambdas_vs_overload()
 
     
     

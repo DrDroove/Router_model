@@ -28,9 +28,9 @@ class RingBuffer:
         return self.size
 
 class System:
-    def __init__(self):
+    def __init__(self, additions):
         self.events = []
-        self.schedule_event(StateChangeEvent(ADDITION/CONNECTION_SPEED, (0,1))) #first state change scheduled!
+        self.schedule_event(StateChangeEvent(additions[0]/CONNECTION_SPEED, (0,1))) #first state change scheduled!
 
         self.threads_queues = [RingBuffer(20000) for n in range(NUMBER_OF_THREADS)]
         self.system_time = 0
@@ -40,19 +40,21 @@ class System:
 
         self.snapshots = []
         mean_times_by_thread = [0]*NUMBER_OF_THREADS
-        mean_times_by_thread[0] = ADDITION/CONNECTION_SPEED
+        mean_times_by_thread[0] = additions[0]/CONNECTION_SPEED
         mean_lengths_by_thread = [0]*NUMBER_OF_THREADS
         self.snapshots.append((0, (0,0), mean_times_by_thread, [0]*NUMBER_OF_THREADS, mean_lengths_by_thread, [0]*NUMBER_OF_THREADS))
         self.last_mean_state_duration = [0]*NUMBER_OF_THREADS
         self.number_of_measurements_times = [0]*NUMBER_OF_THREADS
         self.number_of_measurements_lengths = [0]*NUMBER_OF_THREADS
-        self.last_mean_state_duration[0] = ADDITION/CONNECTION_SPEED
+        self.last_mean_state_duration[0] = additions[0]/CONNECTION_SPEED
         self.number_of_measurements_times[0] = 1
         self.number_of_measurements_lengths[0] = 1
 
         self.last_areas = [0]*NUMBER_OF_THREADS
 
         self.last_mean_wait_time = [0]*NUMBER_OF_THREADS
+
+        self.additions = additions
 
     def schedule_event(self, event):
         heapq.heappush(self.events, event)
