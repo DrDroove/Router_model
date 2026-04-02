@@ -29,7 +29,7 @@ class StateChangeEvent(Event):
             simulation.take_snapshot()
 
         else:
-            state_duration = min((simulation.threads_queues[simulation.system_state[0]].length()+simulation.additions[simulation.system_state[0]])/CONNECTION_SPEED, T_MAX)
+            state_duration = min((simulation.threads_queues[simulation.system_state[0]].length()+simulation.additions[simulation.system_state[0]])/CONNECTION_SPEED, simulation.TMax)
 
             simulation.redline = self.time + state_duration + T_TUNE
             simulation.schedule_event(StateChangeEvent(
@@ -72,6 +72,7 @@ class EndOfServingEvent(Event):
         self.updates_mean_state_duration = False
     def handle(self, simulation):
         simulation.system_time = self.time
+        simulation.number_of_served_calls[self.thread_number] += 1
        
         if (self.thread_number == simulation.system_state[0]) and (simulation.system_state[1] == 0) and not(simulation.threads_queues[self.thread_number].is_empty()) and (self.time+T_SERVE<simulation.redline):
             time_of_arrival = simulation.threads_queues[self.thread_number].get()

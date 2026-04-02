@@ -28,7 +28,7 @@ class RingBuffer:
         return self.size
 
 class System:
-    def __init__(self, additions):
+    def __init__(self, additions, TMax):
         self.events = []
         self.schedule_event(StateChangeEvent(additions[0]/CONNECTION_SPEED, (0,1))) #first state change scheduled!
 
@@ -55,6 +55,8 @@ class System:
         self.last_mean_wait_time = [0]*NUMBER_OF_THREADS
 
         self.additions = additions
+        self.TMax = TMax
+        self.number_of_served_calls = [0]*NUMBER_OF_THREADS
 
     def schedule_event(self, event):
         heapq.heappush(self.events, event)

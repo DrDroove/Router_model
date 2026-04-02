@@ -1,8 +1,8 @@
 T_END = 1000
 T_TUNE = 0.5
-T_MAX = 2
+#T_MAX = 2
 
-CONNECTION_SPEED = 100 #pakages per time tick
+CONNECTION_SPEED = 10 #pakages per time tick
 
 ADDITION = 5 #correction for new arrivals(in calls)
 PROBABILITY_OF_SMALL_GROUP = 0.7

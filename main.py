@@ -102,8 +102,14 @@ def generateEpsilonMesh(Eps_max, step):
                 epsilons.append((e1,e2,e3))
     return epsilons
 
-def run_simulation_for_stationary_mode(lambdas, epsilons):
-    simulation = System(epsilons)
+def generateTMaxMesh(maxTMax, step):
+    TMaxes = []
+    for t in np.arange(step, maxTMax, step):
+        TMaxes.append(t)
+    return TMaxes
+
+def run_simulation_for_stationary_mode(lambdas, epsilons, TMax):
+    simulation = System(epsilons, TMax)
 
     t = np.zeros(NUMBER_OF_THREADS)
     while True: #Income generation
@@ -130,8 +136,8 @@ def run_simulation_for_stationary_mode(lambdas, epsilons):
 
     return (isOverloaded(queues_lengths[-tail:], 50, 0.7), lambdas)
 
-def run_simulation_for_epsilon_optimisation(lambdas, epsilons):
-    simulation = System(epsilons)
+def run_simulation_for_epsilon_optimisation(lambdas, TMax, epsilons):
+    simulation = System(epsilons, TMax)
 
     t = np.zeros(NUMBER_OF_THREADS)
     while True: #Income generation
@@ -152,10 +158,45 @@ def run_simulation_for_epsilon_optimisation(lambdas, epsilons):
     simulation.run()
 
     mean_wait_times_by_threads_last = simulation.snapshots[-1][5]
+    number_of_served_calls = simulation.number_of_served_calls
 
-    mean_wait_time = sum(mean_wait_times_by_threads_last)/len(mean_wait_times_by_threads_last)
+    sum_mean_wait_times = sum(mwt*sc for mwt, sc in zip(mean_wait_times_by_threads_last, number_of_served_calls))
+
+    mean_wait_time = sum_mean_wait_times/len(mean_wait_times_by_threads_last)
 
     return (mean_wait_time, mean_wait_times_by_threads_last, epsilons)
+
+def run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax):
+    simulation = System(epsilons, TMax)
+
+    t = np.zeros(NUMBER_OF_THREADS)
+    while True: #Income generation
+        array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
+        array_tau = -np.log(array_tau)/lambdas
+        t += array_tau
+        if np.all(t > T_END):
+            break
+        for i in range(NUMBER_OF_THREADS):
+            if t[i]<= T_END:
+                random_size = np.random.uniform()
+                if random_size < PROBABILITY_OF_SMALL_GROUP:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+                else:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+
+
+    simulation.run()
+
+    mean_wait_times_by_threads_last = simulation.snapshots[-1][5]
+    number_of_served_calls = simulation.number_of_served_calls
+
+    sum_mean_wait_times = sum(mwt*sc for mwt, sc in zip(mean_wait_times_by_threads_last, number_of_served_calls))
+
+    mean_wait_time = sum_mean_wait_times/len(mean_wait_times_by_threads_last)
+
+    return (mean_wait_time, mean_wait_times_by_threads_last, TMax)
+
+
 
 def draw_lambdas_vs_overload():
     with open('lambdas_vs_overload.pkl', 'rb') as f:
@@ -219,6 +260,26 @@ def anylize_epsilon_optimization(filename):
 
         print(f"Thread {thread_idx} marginal optimal:\nGeneral mean wait time:{results[index_of_min_wait_time][0]}\nMin wait time by threads: {results[index_of_min_wait_time][1]},\nEpsilons:{results[index_of_min_wait_time][2]}\n")
 
+    return results[index_of_min_general_wait_time][2]#actual optimal epsilons for general
+def anylize_TMax_optimization(filename):
+    with open(filename, 'rb') as f:
+        results = pickle.load(f)
+
+    general_mean_wait_times = [r[0] for r in results]
+    min_general_wait_time = min(general_mean_wait_times)
+    index_of_min_general_wait_time = general_mean_wait_times.index(min_general_wait_time)
+
+    print(f"All threads general optimal:\nGeneral Mean wait time: {results[index_of_min_general_wait_time][0]},\nMean wait times by threads:{results[index_of_min_general_wait_time][1]},\nT_max:{results[index_of_min_general_wait_time][2]}\n")
+
+    mean_wait_times_by_threads = [r[1] for r in results]
+    for thread_idx in range(NUMBER_OF_THREADS):
+        mean_wait_times = [mt[thread_idx] for mt in mean_wait_times_by_threads]
+
+        min_wait_time = min(mean_wait_times)
+        index_of_min_wait_time = mean_wait_times.index(min_wait_time)
+
+        print(f"Thread {thread_idx} marginal optimal:\nGeneral mean wait time:{results[index_of_min_wait_time][0]}\nMin wait time by threads: {results[index_of_min_wait_time][1]},\nT_max:{results[index_of_min_wait_time][2]}\n")
+    return results[index_of_min_general_wait_time][2]#actual opimal TMax for general
 
 if __name__=='__main__':
 
@@ -242,9 +303,48 @@ if __name__=='__main__':
     # with open('epsilons_vs_mean_times.pkl', 'wb') as f:
     #     pickle.dump(results, f)
 
-    anylize_epsilon_optimization('epsilons_vs_mean_times_small_lambdas.pkl')
-    print('-'*50)
-    anylize_epsilon_optimization('epsilons_vs_mean_times_HighSpeed_mid_lambdas.pkl')
+    ARRAY_OF_Tmaxes = generateEpsilonMesh(100, 0.1)
+    results = []
+
+    run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), (5,5,5))
+    
+    with ProcessPoolExecutor(max_workers=12) as executor:
+        for res in executor.map(run_with_configured_lambdas_and_eps, ARRAY_OF_Tmaxes):
+            results.append(res)
+    with open('Tmaxes_vs_mean_times.pkl', 'wb') as f:
+        pickle.dump(results, f)
+
+    TMax = anylize_TMax_optimization('Tmaxes_vs_mean_times.pkl')
+    
+    ARRAY_OF_EPSILONS = generateEpsilonMesh(TMax*10, 1)
+    results = []
+
+    run_with_configured_lambda_and_TMax = partial(run_simulation_for_epsilon_optimisation, (1.5,2,1), TMax)
+    
+    with ProcessPoolExecutor(max_workers=12) as executor:
+        for res in executor.map(run_with_configured_lambda_and_TMax, ARRAY_OF_EPSILONS):
+            results.append(res)
+    with open('epsilons_vs_mean_times.pkl', 'wb') as f:
+        pickle.dump(results, f)
+
+    epsilons = anylize_epsilon_optimization('epsilons_vs_mean_times.pkl')
+
+    print("Repeated TMax optimazation:")
+
+    ARRAY_OF_Tmaxes = generateEpsilonMesh(100, 0.1)
+    results = []
+
+    run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), epsilons)
+    
+    with ProcessPoolExecutor(max_workers=12) as executor:
+        for res in executor.map(run_with_configured_lambdas_and_eps, ARRAY_OF_Tmaxes):
+            results.append(res)
+    with open('Tmaxes_vs_mean_times_repeated.pkl', 'wb') as f:
+        pickle.dump(results, f)
+
+    TMax = anylize_TMax_optimization('Tmaxes_vs_mean_times_repeated.pkl')
+
+
     
     # simulation = System((5,5,5))
 
