@@ -30,7 +30,7 @@ class RingBuffer:
 class System:
     def __init__(self, additions, TMax):
         self.events = []
-        self.schedule_event(StateChangeEvent(additions[0]/CONNECTION_SPEED, (0,1))) #first state change scheduled!
+        self.schedule_event(StateChangeEvent(additions[0]/CONNECTION_SPEED+1e-5, (0,1))) #first state change scheduled!
 
         self.threads_queues = [RingBuffer(20000) for n in range(NUMBER_OF_THREADS)]
         self.system_time = 0

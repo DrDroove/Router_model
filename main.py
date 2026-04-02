@@ -162,7 +162,7 @@ def run_simulation_for_epsilon_optimisation(lambdas, TMax, epsilons):
 
     sum_mean_wait_times = sum(mwt*sc for mwt, sc in zip(mean_wait_times_by_threads_last, number_of_served_calls))
 
-    mean_wait_time = sum_mean_wait_times/len(mean_wait_times_by_threads_last)
+    mean_wait_time = sum_mean_wait_times/(sum(number_of_served_calls))
 
     return (mean_wait_time, mean_wait_times_by_threads_last, epsilons)
 
@@ -192,9 +192,9 @@ def run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax):
 
     sum_mean_wait_times = sum(mwt*sc for mwt, sc in zip(mean_wait_times_by_threads_last, number_of_served_calls))
 
-    mean_wait_time = sum_mean_wait_times/len(mean_wait_times_by_threads_last)
+    mean_wait_time = sum_mean_wait_times/(sum(number_of_served_calls))
 
-    return (mean_wait_time, mean_wait_times_by_threads_last, TMax)
+    return (round(mean_wait_time, 4), mean_wait_times_by_threads_last, TMax)
 
 
 
@@ -261,13 +261,27 @@ def anylize_epsilon_optimization(filename):
         print(f"Thread {thread_idx} marginal optimal:\nGeneral mean wait time:{results[index_of_min_wait_time][0]}\nMin wait time by threads: {results[index_of_min_wait_time][1]},\nEpsilons:{results[index_of_min_wait_time][2]}\n")
 
     return results[index_of_min_general_wait_time][2]#actual optimal epsilons for general
+
 def anylize_TMax_optimization(filename):
     with open(filename, 'rb') as f:
         results = pickle.load(f)
 
     general_mean_wait_times = [r[0] for r in results]
-    min_general_wait_time = min(general_mean_wait_times)
-    index_of_min_general_wait_time = general_mean_wait_times.index(min_general_wait_time)
+    # min_general_wait_time = min(general_mean_wait_times)
+    # index_of_min_general_wait_time = general_mean_wait_times.index(min_general_wait_time)
+
+    min_val = 10**8
+    min_TMax = 10**8
+    index_of_min_general_wait_time = 0
+    for i in range(len(general_mean_wait_times)):
+        if results[i][0]<min_val:
+            min_val = results[i][0]
+            min_TMax = results[i][2]
+            index_of_min_general_wait_time  =  i
+        elif results[i][0] ==  min_val  and results[i][2]<min_TMax:
+            min_val = results[i][0]
+            min_TMax = results[i][2]
+            index_of_min_general_wait_time  =  i
 
     print(f"All threads general optimal:\nGeneral Mean wait time: {results[index_of_min_general_wait_time][0]},\nMean wait times by threads:{results[index_of_min_general_wait_time][1]},\nT_max:{results[index_of_min_general_wait_time][2]}\n")
 
@@ -303,38 +317,38 @@ if __name__=='__main__':
     # with open('epsilons_vs_mean_times.pkl', 'wb') as f:
     #     pickle.dump(results, f)
 
-    ARRAY_OF_Tmaxes = generateEpsilonMesh(100, 0.1)
-    results = []
+    # ARRAY_OF_Tmaxes = generateTMaxMesh(100, 0.1)
+    # results = []
 
-    run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), (5,5,5))
+    # run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), (5,5,5))
     
-    with ProcessPoolExecutor(max_workers=12) as executor:
-        for res in executor.map(run_with_configured_lambdas_and_eps, ARRAY_OF_Tmaxes):
-            results.append(res)
-    with open('Tmaxes_vs_mean_times.pkl', 'wb') as f:
-        pickle.dump(results, f)
+    # with ProcessPoolExecutor(max_workers=12) as executor:
+    #     for res in executor.map(run_with_configured_lambdas_and_eps, ARRAY_OF_Tmaxes):
+    #         results.append(res)
+    # with open('Tmaxes_vs_mean_times.pkl', 'wb') as f:
+    #     pickle.dump(results, f)
 
-    TMax = anylize_TMax_optimization('Tmaxes_vs_mean_times.pkl')
+    # TMax = anylize_TMax_optimization('Tmaxes_vs_mean_times.pkl')
     
-    ARRAY_OF_EPSILONS = generateEpsilonMesh(TMax*10, 1)
-    results = []
+    # ARRAY_OF_EPSILONS = generateEpsilonMesh(TMax*10, 1)
+    # results = []
 
-    run_with_configured_lambda_and_TMax = partial(run_simulation_for_epsilon_optimisation, (1.5,2,1), TMax)
+    # run_with_configured_lambda_and_TMax = partial(run_simulation_for_epsilon_optimisation, (1.5,2,1), TMax)
     
-    with ProcessPoolExecutor(max_workers=12) as executor:
-        for res in executor.map(run_with_configured_lambda_and_TMax, ARRAY_OF_EPSILONS):
-            results.append(res)
-    with open('epsilons_vs_mean_times.pkl', 'wb') as f:
-        pickle.dump(results, f)
+    # with ProcessPoolExecutor(max_workers=12) as executor:
+    #     for res in executor.map(run_with_configured_lambda_and_TMax, ARRAY_OF_EPSILONS):
+    #         results.append(res)
+    # with open('epsilons_vs_mean_times.pkl', 'wb') as f:
+    #     pickle.dump(results, f)
 
-    epsilons = anylize_epsilon_optimization('epsilons_vs_mean_times.pkl')
+    # epsilons = anylize_epsilon_optimization('epsilons_vs_mean_times.pkl')
 
     print("Repeated TMax optimazation:")
 
-    ARRAY_OF_Tmaxes = generateEpsilonMesh(100, 0.1)
+    ARRAY_OF_Tmaxes = generateTMaxMesh(100, 0.1)
     results = []
 
-    run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), epsilons)
+    run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), (0,0,3))
     
     with ProcessPoolExecutor(max_workers=12) as executor:
         for res in executor.map(run_with_configured_lambdas_and_eps, ARRAY_OF_Tmaxes):
