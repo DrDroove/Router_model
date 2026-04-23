@@ -104,11 +104,11 @@ def generateEpsilonMesh(Eps_max, step):
 
 def generateEpsillonGradientMesh(Eps_max):
     epsilons = []
-    step = Eps_max//24
+    step = Eps_max//5
     for e1 in np.arange(0, Eps_max, step):
         for e2 in np.arange(0, Eps_max, step):
             for e3 in np.arange(0, Eps_max, step):
-                epsilons.append((e1+np.random.uniform(0,step//2),e2+np.random.uniform(0,step//2),e3+np.random.uniform(0,step//2)))
+                epsilons.append((e1,e2,e3))
     return epsilons
 
 def generateTMaxMesh(maxTMax, step):
@@ -119,9 +119,9 @@ def generateTMaxMesh(maxTMax, step):
 
 def generateTMaxGradientMesh(maxTMax):
     TMaxes = []
-    step = maxTMax//24
+    step = maxTMax//8
     for t in np.arange(step, maxTMax, step):
-        TMaxes.append(t+np.random.uniform(0,step//2))
+        TMaxes.append(t)
     return TMaxes
 
 def run_simulation_for_stationary_mode(lambdas, epsilons, TMax):
@@ -176,11 +176,24 @@ def run_simulation_for_epsilon_optimisation(lambdas, TMax, epsilons):
     mean_wait_times_by_threads_last = simulation.snapshots[-1][5]
     number_of_served_calls = simulation.number_of_served_calls
 
+    if sum(number_of_served_calls) == 0:
+        print(TMax, epsilons)
+        return
+
     sum_mean_wait_times = sum(mwt*sc for mwt, sc in zip(mean_wait_times_by_threads_last, number_of_served_calls))
 
     mean_wait_time = sum_mean_wait_times/(sum(number_of_served_calls))
 
-    return (mean_wait_time, mean_wait_times_by_threads_last, epsilons)
+    tail_sum = 0.0
+    tail_count = 0
+    for time in simulation.latency_tail_candidates:
+        if time >= simulation.digest.percentile(99):
+            tail_sum += time
+            tail_count += 1
+
+    CVaR_99 = tail_sum/tail_count
+
+    return (mean_wait_time, CVaR_99, mean_wait_times_by_threads_last, epsilons)
 
 def run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax):
     simulation = System(epsilons, TMax)
@@ -210,46 +223,68 @@ def run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax):
 
     mean_wait_time = sum_mean_wait_times/(sum(number_of_served_calls))
 
-    return (mean_wait_time, mean_wait_times_by_threads_last, TMax)
+    tail_sum = 0.0
+    tail_count = 0
+    for time in simulation.latency_tail_candidates:
+        if time >= simulation.digest.percentile(99):
+            tail_sum += time
+            tail_count += 1
 
-def gradientTMaxOptimization(lambdas, epsillons, stepVariants, startPoint):
+    CVaR_99 = tail_sum/tail_count
+
+    return (mean_wait_time, CVaR_99, mean_wait_times_by_threads_last, TMax)
+
+def safe_run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax):
+    try:
+        return run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax)
+    except RuntimeError:
+        return (None, TMax)
+
+def gradientTMaxOptimization(lambdas, epsillons, stepVariants, weight_for_CVaR_99, startPoint):
     curr_point = startPoint
-    curr_mean_wait_time = 10**8
+    curr_optimization_metric = 10**8
 
     test_variant = partial(run_simulation_for_TMax_optimaztion, lambdas, epsillons)
 
     for step in stepVariants:
         last_point = curr_point+1
-        while last_point!=curr_point:
+        iter = 0
+        while last_point!=curr_point and curr_point>0 and curr_point<150 and iter<10000:
+            iter+=1
             last_point = curr_point
             potential_variants = map(test_variant, [curr_point+step, curr_point-step])
             for var in potential_variants:
-                if var[0]<curr_mean_wait_time:
-                    curr_mean_wait_time = var[0]
+                if var[0] + weight_for_CVaR_99*var[1]<curr_optimization_metric:
+                    curr_optimization_metric = var[0] + weight_for_CVaR_99*var[1]
                     curr_point = var[2]
                 
-    return (curr_mean_wait_time, curr_point)
+    return (curr_optimization_metric, curr_point)
 
-def gradientEpsillonOptimization(lambdas, TMax, stepVariants, startPoint):
+def gradientEpsillonOptimization(lambdas, TMax, stepVariants, weight_for_CVaR_99, startPoint):
     curr_point = startPoint
-    curr_mean_wait_time = 10**8
+    curr_optimization_metric = 10**8
 
     test_variant = partial(run_simulation_for_epsilon_optimisation, lambdas, TMax)
 
     for step in stepVariants:
-        last_point = curr_point+1
-        while last_point!=curr_point:
+        last_point = (10000, 1000000, 100000)
+        iter = 0
+        while last_point!=curr_point and iter<10000:
+            iter+=1
             last_point = curr_point
             step_matrix = np.eye(len(curr_point))*step
             next_points = np.vstack([curr_point+step_matrix, curr_point-step_matrix])
             next_points_tuples = [tuple(p) for p in next_points]
+            next_points_tuples = filter(lambda p: all(el>=0 and el<=10*TMax for el in p), next_points_tuples)
             potential_variants = map(test_variant, next_points_tuples)
             for var in potential_variants:
-                if var[0]<curr_mean_wait_time:
-                    curr_mean_wait_time = var[0]
+                if var[0]+weight_for_CVaR_99*var[1]<curr_optimization_metric:
+                    curr_optimization_metric = var[0]+weight_for_CVaR_99*var[1]
                     curr_point = var[2]
+                    #print(curr_point)
+
                 
-    return (curr_mean_wait_time, curr_point)
+    return (curr_optimization_metric, curr_point)
 
 def draw_lambdas_vs_overload():
     with open('lambdas_vs_overload.pkl', 'rb') as f:
@@ -374,6 +409,7 @@ def anylize_gradient_epsillons_optimization(filename):
     general_mean_wait_times = [r[0] for r in results]
     min_general_wait_time = min(general_mean_wait_times)
     index_of_min_general_wait_time = general_mean_wait_times.index(min_general_wait_time)
+    #print(results[index_of_min_general_wait_time])
     return results[index_of_min_general_wait_time][1], results[index_of_min_general_wait_time][0]
 
 
@@ -427,16 +463,19 @@ if __name__=='__main__':
 
     # print("Repeated TMax optimazation:")
 
-    # ARRAY_OF_Tmaxes = generateTMaxMesh(100, 0.1)
-    # results = []
+    ARRAY_OF_Tmaxes = generateTMaxMesh(24.0, 1.0)
+    results = []
 
-    # run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), (0,0,3))
+    run_with_configured_lambdas_and_eps = partial(safe_run_simulation_for_TMax_optimaztion, (2, 5, 1), (5,5,5))
     
-    # with ProcessPoolExecutor(max_workers=12) as executor:
-    #     for res in executor.map(run_with_configured_lambdas_and_eps, ARRAY_OF_Tmaxes):
-    #         results.append(res)
-    # with open('Tmaxes_vs_mean_times_repeated.pkl', 'wb') as f:
-    #     pickle.dump(results, f)
+    with ProcessPoolExecutor(max_workers=6) as executor:
+        for res in executor.map(run_with_configured_lambdas_and_eps, ARRAY_OF_Tmaxes):
+            results.append(res)
+    with open('Tmaxes_vs_mean_times_repeated.pkl', 'wb') as f:
+        pickle.dump(results, f)
+
+    for res in results:
+        print(f'{res}\n')
 
     # TMax = anylize_TMax_optimization('Tmaxes_vs_mean_times_repeated_opt_TMAx_2.pkl')
     # print('-'*50)
@@ -446,47 +485,60 @@ if __name__=='__main__':
     # print('-'*50)
     # anylize_TMax_optimization('Tmaxes_vs_mean_times_repeated_55.pkl')
 
-    lambdas = (1.5,2,1)
-    epsillons = (5,5,5)
+    # lambdas = (1.5,2,1)
+    # epsillons = (5,5,5)
 
-    last_epsillons = (1,1,1)
-    last_Tmax = 10**8
+    # last_epsillons = (1,1,1)
+    # last_Tmax = 1
+    # TMax = 10**8
 
-    while epsillons!=last_epsillons or not (TMax>last_Tmax-1e-3 and TMax< last_Tmax+1e-3):
-        ARRAY_OF_TMAXES = generateTMaxGradientMesh(120)
+    # mean_wait_time = 10**8
 
-        results = []
+    # while epsillons!=last_epsillons or not ((TMax>last_Tmax-1e-3) and (TMax< last_Tmax+1e-3)):
+    #     last_Tmax = TMax
+    #     last_epsillons = epsillons
+    #     ARRAY_OF_TMAXES = generateTMaxGradientMesh(120)
 
-        run_gradient_Tmax_optimization = partial(gradientTMaxOptimization, lambdas, epsillons, [1.0, 0.5, 0.2, 0,1])
+    #     results = []
+
+    #     run_gradient_Tmax_optimization = partial(gradientTMaxOptimization, lambdas, epsillons, [5.0, 1.0, 0.5, 0.2, 0,1])
         
-        with ProcessPoolExecutor(max_workers=12) as executor:
-            for res in executor.map(run_gradient_Tmax_optimization, ARRAY_OF_TMAXES):
-                results.append(res)
-        with open('Tmaxes_vs_mean_times_gradient.pkl', 'wb') as f:
-            pickle.dump(results, f)
-        TMax, mean_wait_time = anylize_gradient_TMax_optimization('Tmaxes_vs_mean_times_gradient.pkl')
+    #     with ProcessPoolExecutor(max_workers=12) as executor:
+    #         for res in executor.map(run_gradient_Tmax_optimization, ARRAY_OF_TMAXES):
+    #             results.append(res)
+    #     with open('Tmaxes_vs_mean_times_gradient.pkl', 'wb') as f:
+    #         pickle.dump(results, f)
+    #     TMax, mean_wait_time = anylize_gradient_TMax_optimization('Tmaxes_vs_mean_times_gradient.pkl')
 
-        ARRAY_OF_EPSILLONS = generateEpsillonGradientMesh(TMax*10)
+    #     ARRAY_OF_EPSILLONS = generateEpsillonGradientMesh(TMax*10)
 
-        run_gradient_epsillon_optimization = partial(gradientEpsillonOptimization, lambdas, TMax, [3.0, 2.0, 1.0])
 
-        with ProcessPoolExecutor(max_workers=12) as executor:
-            for res in executor.map(run_gradient_epsillon_optimization, ARRAY_OF_EPSILLONS):
-                results.append(res)
-        with open('Epsillons_vs_mean_times_gradient.pkl', 'wb') as f:
-            pickle.dump(results, f)
-        epsillons, mean_wait_time = anylize_gradient_TMax_optimization('Epsillons_vs_mean_times_gradient.pkl')
+    #     print(results)
+    #     results = []
 
-    print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {TMax}\nEpsillons: {epsillons}')
+    #     run_gradient_epsillon_optimization = partial(gradientEpsillonOptimization, lambdas, TMax, [3.0, 2.0, 1.0])
+
+    #     with ProcessPoolExecutor(max_workers=12) as executor:
+    #         for res in executor.map(run_gradient_epsillon_optimization, ARRAY_OF_EPSILLONS):
+    #             results.append(res)
+    #     with open('Epsillons_vs_mean_times_gradient.pkl', 'wb') as f:
+    #         pickle.dump(results, f)
+    #     epsillons, mean_wait_time = anylize_gradient_epsillons_optimization('Epsillons_vs_mean_times_gradient.pkl')
+    #     #print(epsillons, mean_wait_time)
+
+    #     print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {TMax}\nEpsillons: {epsillons}')
+    #     print(results)
+
+    # print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {last_Tmax}\nEpsillons: {last_epsillons}')
 
 
     
-    # simulation = System((5,5,5))
+    # simulation = System(tuple([5]*15), 4.0)
 
     # t = np.zeros(NUMBER_OF_THREADS)
     # while True: #Income generation
     #     array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
-    #     array_tau = -np.log(array_tau)/(1.5,2,1)
+    #     array_tau = -np.log(array_tau)/ tuple([5]*15)
     #     t += array_tau
     #     if np.all(t > T_END):
     #         break
@@ -500,6 +552,6 @@ if __name__=='__main__':
     
     # simulation.run()
    
-    # drawAllGraphs(snapshots=simulation.snapshots, lambdas=(1.5,2,1))
+    # drawAllGraphs(snapshots=simulation.snapshots, lambdas= tuple([5]*15))
 
     

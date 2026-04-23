@@ -1,5 +1,6 @@
 import numpy as np
 import heapq
+from tdigest import TDigest
 
 from config import *
 from events import StateChangeEvent
@@ -58,6 +59,9 @@ class System:
         self.TMax = TMax
         self.number_of_served_calls = [0]*NUMBER_OF_THREADS
 
+        self.latency_tail_candidates = []
+        self.digest = TDigest()
+
     def schedule_event(self, event):
         heapq.heappush(self.events, event)
 
@@ -92,6 +96,11 @@ class System:
                 self.last_mean_wait_time.copy()
                 )
                 )
+            
+            self.digest.update(wait_time)
+            if wait_time>= self.digest.percentile(90):
+                self.latency_tail_candidates.append(wait_time)
+
         elif not(update_mean_state_duration) and update_mean_wait_time:
             thread_number = self.system_state[0]
             dt = self.system_time - self.snapshots[-1][0]
@@ -108,6 +117,11 @@ class System:
                 self.last_mean_wait_time.copy()
                 )
                 )
+            
+            self.digest.update(wait_time)
+            if wait_time>= self.digest.percentile(90):
+                self.latency_tail_candidates.append(wait_time)
+                
         elif update_mean_state_duration and not(update_mean_wait_time):
             thread_number = self.system_state[0]
             mean_state_duration = (self.number_of_measurements_times[thread_number] * self.last_mean_state_duration[thread_number] + state_duration)/(self.number_of_measurements_times[thread_number]+1)
