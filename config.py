@@ -1,5 +1,5 @@
 T_END = 1000
-T_TUNE = 0.5
+T_TUNE = 0.05
 #T_MAX = 2
 
 CONNECTION_SPEED = 100 #pakages per time tick

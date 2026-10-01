@@ -9,6 +9,7 @@ from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from statsmodels.tsa.stattools import acf
 from mpl_toolkits.mplot3d import Axes3D
+from statistics import mean
 
 from system import *
 from events import *
@@ -75,6 +76,72 @@ def drawAllGraphs(snapshots, lambdas):
     plt.grid(True)
     plt.savefig(os.path.join(output_dir, "mean_wait_times_by_thread.png"), dpi=200)
     plt.close()
+
+def check_if_stationary(mean_queues_lengths, mean_wait_times, mean_state_durations, number_of_steps, tolerancy_lengths, tolerancy_wait_times, tolerancy_state_durations):
+    step = len(mean_queues_lengths)//number_of_steps
+    thread_is_stationary = [False]*len(mean_queue_lenghs[0])
+    for t1 in range(0, len(mean_queues_lengths)-step, step):
+        t2 = t1 + step//4
+        t3 = t1 + step//2
+        t4 = t1 + 3*step//4
+        for i in range(0,len(mean_queue_lenghs[0])):
+            delta_lengths = max(mean_queues_lengths[t1][i], mean_queues_lengths[t2][i], mean_queues_lengths[t3][i], mean_queues_lengths[t4][i]) - min(mean_queues_lengths[t1][i], mean_queues_lengths[t2][i], mean_queues_lengths[t3][i], mean_queues_lengths[t4][i])
+            delta_wait_times = max(mean_wait_times[t1][i], mean_wait_times[t2][i], mean_wait_times[t3][i], mean_wait_times[t4][i]) - min(mean_wait_times[t1][i], mean_wait_times[t2][i], mean_wait_times[t3][i], mean_wait_times[t4][i])
+            delta_state_duration = max(mean_state_durations[t1][i], mean_state_durations[t2][i], mean_state_durations[t3][i], mean_state_durations[t4][i]) - min(mean_state_durations[t1][i], mean_state_durations[t2][i], mean_state_durations[t3][i], mean_state_durations[t4][i])
+            print(delta_lengths, delta_wait_times, delta_state_duration)
+            if delta_lengths<tolerancy_lengths and delta_state_duration<tolerancy_state_durations and delta_wait_times<tolerancy_wait_times:
+                thread_is_stationary[i]=True
+            else:
+                thread_is_stationary[i]=False
+        if all(thread_is_stationary):
+            return(True,t1)
+    return (False, None)
+
+def check_if_stationary_v2(
+    mean_queue_lengths,
+    mean_wait_times,
+    mean_state_durations,
+    number_of_windows,
+    tolerance_lengths,
+    tolerance_wait_times,
+    tolerance_state_durations,
+):
+    step = len(mean_queue_lengths) // number_of_windows
+    num_threads = len(mean_queue_lengths[0])
+
+    def is_within_tolerance(values, tolerance):
+        return (max(values) - min(values))/mean(values) < tolerance
+
+    for t1 in range(0, len(mean_queue_lengths) - step, step):
+        times = [
+            t1,
+            t1 + step // 4,
+            t1 + step // 2,
+            t1 + 3 * step // 4,
+        ]
+
+        for thread in range(num_threads):
+            stationary = all([
+                is_within_tolerance(
+                    [mean_queue_lengths[t][thread] for t in times],
+                    tolerance_lengths,
+                ),
+                is_within_tolerance(
+                    [mean_wait_times[t][thread] for t in times],
+                    tolerance_wait_times,
+                ),
+                is_within_tolerance(
+                    [mean_state_durations[t][thread] for t in times],
+                    tolerance_state_durations,
+                ),
+            ])
+
+            if not stationary:
+                break
+        else:
+            return True, t1
+
+    return False, None
 
 def isOverloaded(queues_lengths, lag, threshold):
     isOverloaded = []
@@ -627,32 +694,32 @@ if __name__=='__main__':
 
     # print('-------------Optimization under heavy one thread done')
 
-    simulation = System((0,75,0), 16)
-    lambdas = (1,70,2)
+    # simulation = System((0,75,0), 16)
+    # lambdas = (1,70,2)
 
-    t = np.zeros(NUMBER_OF_THREADS)
-    while True: #Income generation
-        array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
-        array_tau = -np.log(array_tau)/lambdas
-        t += array_tau
-        if np.all(t > T_END):
-            break
-        for i in range(NUMBER_OF_THREADS):
-            if t[i]<= T_END:
-                random_size = np.random.uniform()
-                if random_size < PROBABILITY_OF_SMALL_GROUP:
-                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
-                else:
-                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+    # t = np.zeros(NUMBER_OF_THREADS)
+    # while True: #Income generation
+    #     array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
+    #     array_tau = -np.log(array_tau)/lambdas
+    #     t += array_tau
+    #     if np.all(t > T_END):
+    #         break
+    #     for i in range(NUMBER_OF_THREADS):
+    #         if t[i]<= T_END:
+    #             random_size = np.random.uniform()
+    #             if random_size < PROBABILITY_OF_SMALL_GROUP:
+    #                 simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+    #             else:
+    #                 simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
 
 
-    simulation.run()
+    # simulation.run()
 
-    drawAllGraphs(simulation.snapshots, (1,70,2))
+    # drawAllGraphs(simulation.snapshots, (1,70,2))
 
-    queues_lengths = [snap[3] for snap in simulation.snapshots]
-    mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
-    print(isOverloaded(queues_lengths,250,0.7), isOverloaded_v2(mean_queues_lengths))
+    # queues_lengths = [snap[3] for snap in simulation.snapshots]
+    # mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
+    # print(isOverloaded(queues_lengths,250,0.7), isOverloaded_v2(mean_queues_lengths))
 
     # lambdas = (2,70,1)
     # epsillons = (5,5,5)
@@ -680,25 +747,47 @@ if __name__=='__main__':
 
 
 
-    # simulation = System(tuple([5]*15), 4.0)
+    simulation = System(tuple([5]*3), 4.0)
+    lambdas = (3,5,1)
 
-    # t = np.zeros(NUMBER_OF_THREADS)
-    # while True: #Income generation
-    #     array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
-    #     array_tau = -np.log(array_tau)/ tuple([5]*15)
-    #     t += array_tau
-    #     if np.all(t > T_END):
-    #         break
-    #     for i in range(NUMBER_OF_THREADS):
-    #         if t[i]<= T_END:
-    #             random_size = np.random.uniform()
-    #             if random_size < PROBABILITY_OF_SMALL_GROUP:
-    #                 simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
-    #             else:
-    #                 simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+    t = np.zeros(NUMBER_OF_THREADS)
+    while True: #Income generation
+        array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
+        array_tau = -np.log(array_tau)/ lambdas
+        t += array_tau
+        if np.all(t > T_END):
+            break
+        for i in range(NUMBER_OF_THREADS):
+            if t[i]<= T_END:
+                random_size = np.random.uniform()
+                if random_size < PROBABILITY_OF_SMALL_GROUP:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+                else:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
     
-    # simulation.run()
+    simulation.run()
    
-    # drawAllGraphs(snapshots=simulation.snapshots, lambdas= tuple([5]*15))
-
-    
+    times = [snap[0] for snap in simulation.snapshots]
+    mean_queue_lenghs = [snap[4] for snap in simulation.snapshots]
+    mean_wait_times = [snap[5] for snap in simulation.snapshots]
+    mean_state_duration = [snap[2] for snap in simulation.snapshots]
+    drawAllGraphs(snapshots=simulation.snapshots, lambdas= lambdas)
+    # queues = [x for x in range(0,1000)] + [1200]*1000
+    result1 = check_if_stationary(mean_queue_lenghs,mean_wait_times,mean_state_duration,25,0.05,0.005,0.001)
+    result2 = check_if_stationary(mean_queue_lenghs,mean_wait_times,mean_state_duration,50,0.05,0.005,0.001)
+    result3 = check_if_stationary(mean_queue_lenghs,mean_wait_times,mean_state_duration,100,0.05,0.005,0.001)
+    result12 = check_if_stationary_v2(mean_queue_lenghs,mean_wait_times,mean_state_duration,25,0.01,0.01,0.01)
+    result22 = check_if_stationary_v2(mean_queue_lenghs,mean_wait_times,mean_state_duration,50,0.01,0.01,0.01)
+    result32 = check_if_stationary_v2(mean_queue_lenghs,mean_wait_times,mean_state_duration,100,0.01,0.01,0.01)
+    try:
+        print(result1, times[result1[1]], result12, times[result12[1]])
+    except:
+        print(result1, result12)
+    try:
+        print(result2, times[result2[1]], result22, times[result22[1]])
+    except:
+        print(result2, result22)
+    try:
+        print(result3, times[result3[1]], result32, times[result32[1]])
+    except:
+        print(result3, result32)
