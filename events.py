@@ -30,9 +30,14 @@ class StateChangeEvent(Event):
 
         else:
             try:
+                
                 state_duration = min((simulation.threads_queues[simulation.system_state[0]].length()+simulation.additions[simulation.system_state[0]])/CONNECTION_SPEED, simulation.TMax)
             except TypeError:
                 print((simulation.threads_queues[simulation.system_state[0]].length()+simulation.additions[simulation.system_state[0]])/CONNECTION_SPEED, simulation.TMax)
+            except IndexError:
+                print(simulation.system_state[0])
+                print(simulation.additions[simulation.system_state[0]])
+                print(simulation.threads_queues[simulation.system_state[0]])
 
             simulation.redline = self.time + state_duration + T_TUNE
             simulation.schedule_event(StateChangeEvent(

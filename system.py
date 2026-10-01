@@ -1,6 +1,6 @@
 import numpy as np
 import heapq
-from tdigest import TDigest
+import datasketches
 
 from config import *
 from events import StateChangeEvent
@@ -60,7 +60,9 @@ class System:
         self.number_of_served_calls = [0]*NUMBER_OF_THREADS
 
         self.latency_tail_candidates = []
-        self.digest = TDigest()
+        self.CVaR_P99 = 0
+        self.size_of_CVaR = 0
+        self.kll = datasketches.kll_doubles_sketch()
 
     def schedule_event(self, event):
         heapq.heappush(self.events, event)
@@ -97,9 +99,10 @@ class System:
                 )
                 )
             
-            self.digest.update(wait_time)
-            if wait_time>= self.digest.percentile(90):
-                self.latency_tail_candidates.append(wait_time)
+            
+            self.kll.update(wait_time)
+            
+
 
         elif not(update_mean_state_duration) and update_mean_wait_time:
             thread_number = self.system_state[0]
@@ -118,9 +121,8 @@ class System:
                 )
                 )
             
-            self.digest.update(wait_time)
-            if wait_time>= self.digest.percentile(90):
-                self.latency_tail_candidates.append(wait_time)
+            self.kll.update(wait_time)
+           
                 
         elif update_mean_state_duration and not(update_mean_wait_time):
             thread_number = self.system_state[0]

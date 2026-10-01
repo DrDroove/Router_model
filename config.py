@@ -1,4 +1,4 @@
-T_END = 10000
+T_END = 1000
 T_TUNE = 0.5
 #T_MAX = 2
 
