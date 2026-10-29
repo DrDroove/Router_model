@@ -6,12 +6,13 @@ from config import *
 from events import StateChangeEvent
 
 class RingBuffer:
-    def __init__(self, size):
-        self.end = 0
+    def __init__(self, max_size, actual_size=0):
+        
         self.start = 0
-        self.max_size = size
-        self.size = 0
-        self.data = np.zeros(shape=size)
+        self.max_size = max_size
+        self.size = actual_size
+        self.data = np.zeros(shape=max_size)
+        self.end = (actual_size ) % self.max_size
     def append(self, obj):
         self.data[self.end] = obj
         self.end = (self.end + 1) % self.max_size
@@ -33,7 +34,7 @@ class System:
         self.events = []
         self.schedule_event(StateChangeEvent(additions[0]/CONNECTION_SPEED+1e-5, (0,1))) #first state change scheduled!
 
-        self.threads_queues = [RingBuffer(20000) for n in range(NUMBER_OF_THREADS)]
+        self.threads_queues = [RingBuffer(100000000) for n in range(NUMBER_OF_THREADS)]
         self.system_time = 0
         self.system_state = (0,0)
         self.system_is_free = True
