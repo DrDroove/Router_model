@@ -34,7 +34,7 @@ class System:
         self.events = []
         self.schedule_event(StateChangeEvent(additions[0]/CONNECTION_SPEED+1e-5, (0,1))) #first state change scheduled!
 
-        self.threads_queues = [RingBuffer(100000000) for n in range(NUMBER_OF_THREADS)]
+        self.threads_queues = [RingBuffer(500000) for n in range(NUMBER_OF_THREADS)]
         self.system_time = 0
         self.system_state = (0,0)
         self.system_is_free = True

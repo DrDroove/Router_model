@@ -110,7 +110,10 @@ def check_if_stationary_v2(
     num_threads = len(mean_queue_lengths[0])
 
     def is_within_tolerance(values, tolerance):
-        return (max(values) - min(values))/mean(values) < tolerance
+        if mean(values)>0:
+            return (max(values) - min(values))/mean(values) < tolerance
+        else:
+            return False
 
     for t1 in range(0, len(mean_queue_lengths) - step, step):
         times = [
@@ -195,7 +198,7 @@ def check_if_stationary_with_phanthom_sim_v2(
 
     return False, None
 
-def check_if_stationary_with_hamed_rao_test(mean_queues_lengths, window_size=5000, min_warmup=10000, step_size=1000, alpha=0.01):
+def check_if_stationary_with_hamed_rao_test(mean_queues_lengths, window_size=1000, min_warmup=0, step_size=1000, alpha=0.01):
     start_index = min_warmup + window_size
     if start_index> len(mean_queues_lengths):
         print("Too small")
@@ -218,7 +221,7 @@ def check_if_stationary_with_hamed_rao_test(mean_queues_lengths, window_size=500
                     break
             except Exception as e:
                 print(e)
-                continue
+                break
         else:
             return True, current_idx
     return False, None
@@ -250,11 +253,14 @@ def generateLambdaMesh(minLambda, maxLambda, step):
     return lambdas
 
 def generateLambdaMesh_2d(minLambda, maxLambda, step):
-    lambdas = []
-    for l1 in np.arange(1, maxLambda, step):
-        for l2 in np.arange(1, maxLambda, step):    
-            lambdas.append((l1,l2))
-    return lambdas
+    lambdas = [[]]
+    i = 0
+    for l1 in np.arange(minLambda, maxLambda, step):
+        for l2 in np.arange(minLambda, maxLambda, step):    
+            lambdas[i].append((l1,l2))
+        i+=1
+        lambdas.append([])
+    return lambdas[:-1]
 
 def generateLambdaMesh_govno(step):
     lambdas = []
@@ -344,7 +350,6 @@ def run_simulation_for_stationary_mode_v2(epsilons, TMax, lambdas, sample_size):
 
 
         simulation.run()
-        #drawAllGraphs(simulation.snapshots, lambdas)
 
         mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
         mean_wait_times = [snap[5] for snap in simulation.snapshots]
@@ -352,9 +357,89 @@ def run_simulation_for_stationary_mode_v2(epsilons, TMax, lambdas, sample_size):
 
         results.append(check_if_stationary_with_hamed_rao_test(mean_queues_lengths)[0] and check_if_stationary_v2(mean_queues_lengths, mean_wait_times, mean_state_duration, 25,0.01,0.01,0.01)[0])
 
-        # tail = int(len(queues_lengths)*0.5)
-
+    if mean(results)>=0.7 or mean(results)<=0.3: 
+        return (mean(results)>=0.5, lambdas)
+    else:
+        for i in range(sample_size):
+            simulation = System(epsilons, TMax)
+    
+            t = np.zeros(NUMBER_OF_THREADS)
+            while True: #Income generation
+                array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
+                array_tau = -np.log(array_tau)/lambdas
+                t += array_tau
+                if np.all(t > T_END):
+                    break
+                for i in range(NUMBER_OF_THREADS):
+                    if t[i]<= T_END:
+                        random_size = np.random.uniform()
+                        if random_size < PROBABILITY_OF_SMALL_GROUP:
+                            simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+                        else:
+                            simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+    
+    
+            simulation.run()
+    
+            mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
+            mean_wait_times = [snap[5] for snap in simulation.snapshots]
+            mean_state_duration = [snap[2] for snap in simulation.snapshots]
+    
+            results.append(check_if_stationary_with_hamed_rao_test(mean_queues_lengths)[0] and check_if_stationary_v2(mean_queues_lengths, mean_wait_times, mean_state_duration, 25,0.01,0.01,0.01)[0])
     return (mean(results)>=0.5, lambdas)
+
+def run_simulation_for_stationary_mode_in_slice_smart(epsilons, TMax, sample_size, lambdas_slice):
+    n = len(lambdas_slice)
+
+    if n == 0:
+        raise ValueError("Lambda grid cannot be empty")
+
+    # Cache results so we never simulate the same point twice.
+    results = {}
+
+    def check(index):
+        if index not in results:
+            results[index] = safe_run_simulation_for_stationary_mode_v2(epsilons, TMax, sample_size, lambdas_slice[index])
+        return results[index][0]
+
+    # Check the first point.
+    if not check(0):
+        return 0, results
+
+    # Exponential search
+    low = 0
+    step = 1
+
+    while low + step < n:
+        index = low + step
+
+        if check(index):
+            low = index
+            step *= 2
+        else:
+            high = index
+            break
+    else:
+        # Every point checked so far was stationary.
+        # Check the final grid point if it hasn't been checked.
+        if low == n - 1:
+            return low, results
+
+        if check(n - 1):
+            return n - 1, results
+
+        high = n - 1
+
+    # Binary search
+    while high - low > 1:
+        mid = (low + high) // 2
+
+        if check(mid):
+            low = mid
+        else:
+            high = mid
+
+    return low, results
 
 def run_simulation_for_epsilon_optimisation(lambdas, TMax, epsilons):
     simulation = System(epsilons, TMax)
@@ -821,8 +906,8 @@ if __name__=='__main__':
 
     # print('-------------Optimization under heavy one thread done')
 
-    # simulation = System((0,75,0), 16)
-    # lambdas = (1,70,2)
+    # simulation = System((5,5), 20)
+    # lambdas = (1,1)
 
     # t = np.zeros(NUMBER_OF_THREADS)
     # while True: #Income generation
@@ -839,10 +924,30 @@ if __name__=='__main__':
     #             else:
     #                 simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
 
-
     # simulation.run()
 
-    # drawAllGraphs(simulation.snapshots, (1,70,2))
+    # times = [snap[0] for snap in simulation.snapshots]
+    # queues_lengths = [snap[3] for snap in simulation.snapshots]
+    # mean_queue_lenghs = [snap[4] for snap in simulation.snapshots]
+    # mean_wait_times = [snap[5] for snap in simulation.snapshots]
+    # mean_state_duration = [snap[2] for snap in simulation.snapshots]
+    # drawAllGraphs(snapshots=simulation.snapshots, lambdas= lambdas)
+
+    # result12 = check_if_stationary_v2(mean_queue_lenghs,mean_wait_times,mean_state_duration,25,0.05,0.05,0.05)
+    
+    # result_rao = check_if_stationary_with_hamed_rao_test(mean_queue_lenghs)
+    
+    # try:
+    #     print("Rao:", result_rao, times[result_rao[1]])
+    # except:
+    #     print("Rao:", result_rao)
+    # try:
+    #     print("Four dots", result12, times[result12[1]])
+    # except:
+    #     print("Four dots", result12)
+
+
+
 
     # queues_lengths = [snap[3] for snap in simulation.snapshots]
     # mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
@@ -865,18 +970,18 @@ if __name__=='__main__':
     #     pickle.dump(results, f)
 
     # draw_lambdas_vs_overload(name)
+   
 
-
-
+    
 
     epsillons = (5,5,5)
-
+    
     results = []
-    ARRAY_OF_LAMBDAS = generateLambdaMesh_2d(0, 100, 10)
+    ARRAY_OF_LAMBDAS = generateLambdaMesh_2d(1, 100, 2)
 
     name = "Demo_Lambdas_vs_overload_2d_100_GENERAL"
 
-    run_stationary = partial(safe_run_simulation_for_stationary_mode_v2, epsillons, 20, 10)
+    run_stationary = partial(run_simulation_for_stationary_mode_in_slice_smart, epsillons, 20, 3)
 
     with ProcessPoolExecutor(max_workers=12) as executor:
         for res in executor.map(run_stationary, ARRAY_OF_LAMBDAS):
@@ -884,12 +989,20 @@ if __name__=='__main__':
     with open(name+'.pkl', 'wb') as f:
         pickle.dump(results, f)
 
+    with open(name+'.pkl', 'rb') as f:
+        results = pickle.load(f)
+    lambdas = [lambda_pair
+                for _, r in results 
+                for _, lambda_pair in r.values()]
+
     output_dir = "plots"
     os.makedirs(output_dir, exist_ok=True)
 
-    x, y = zip(*ARRAY_OF_LAMBDAS)
+    x, y = zip(*lambdas)
 
-    colors = ['green' if r else 'red' for r in results[0]]
+    colors = ['green' if verdict else 'red' 
+                for _, r in results 
+                for verdict, _ in r.values()]
 
     plt.figure(figsize=(30, 8))
     
@@ -900,7 +1013,7 @@ if __name__=='__main__':
     plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d.png"), dpi=200)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE={T_TUNE}.png"), dpi=200)
     plt.close()
 
     
