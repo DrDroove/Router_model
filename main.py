@@ -14,6 +14,10 @@ from statistics import mean
 
 from system import *
 from events import *
+from regressions import *
+from RBF_regression import *
+from Gaussian_Process_Regression import *
+
 
 #print(simulation.snapshots)
 def drawAllGraphs(snapshots, lambdas, postfix=""):
@@ -983,29 +987,46 @@ if __name__=='__main__':
 
     run_stationary = partial(run_simulation_for_stationary_mode_in_slice_smart, epsillons, 20, 3)
 
-    with ProcessPoolExecutor(max_workers=12) as executor:
-        for res in executor.map(run_stationary, ARRAY_OF_LAMBDAS):
-            results.append(res)
-    with open(name+'.pkl', 'wb') as f:
-        pickle.dump(results, f)
+    # with ProcessPoolExecutor(max_workers=12) as executor:
+    #     for res in executor.map(run_stationary, ARRAY_OF_LAMBDAS):
+    #         results.append(res)
+    # with open(name+'.pkl', 'wb') as f:
+    #     pickle.dump(results, f)
 
     with open(name+'.pkl', 'rb') as f:
         results = pickle.load(f)
     lambdas = [lambda_pair
                 for _, r in results 
                 for _, lambda_pair in r.values()]
+    verdicts = [verdict 
+                for _, r in results 
+                for verdict, _ in r.values()]
 
     output_dir = "plots"
     os.makedirs(output_dir, exist_ok=True)
 
     x, y = zip(*lambdas)
 
-    colors = ['green' if verdict else 'red' 
-                for _, r in results 
-                for verdict, _ in r.values()]
+    colors = ['green' if verdict else 'red' for verdict in verdicts]
 
-    plt.figure(figsize=(30, 8))
+
+    #Boundary regression
+    boundary_points = [r[l][1] for l, r in results]
+
+    degrees = [2, 3, 4, 5, 6, 7,8,9,10,11, 12]
+    models = [PolynomialBoundaryRegression(degree) for degree in degrees]
+    for model in models:
+        model.fit(boundary_points, dependent_axis=1)
+        print(model.get_info())
+
+    x_values = np.linspace(0.1, 100, 10000)
+
+    predicted_boundaries = [models[2].predict(x_values), models[9].predict(x_values)]
+
+    plt.figure(figsize=(10, 10))
     
+    for predicted_boundary, degree in zip(predicted_boundaries, [4, 11]):
+        plt.plot(x_values, predicted_boundary, label=f"Degree {degree}")
 
     plt.scatter(x, y, c=colors)
     plt.xlabel("Lambda 1")
@@ -1013,15 +1034,131 @@ if __name__=='__main__':
     plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE={T_TUNE}.png"), dpi=200)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Regression={T_TUNE}.png"), dpi=200)
     plt.close()
 
+    #Classification regression
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import (
+        accuracy_score,
+        confusion_matrix,
+        classification_report
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        np.asarray(lambdas),
+        np.asarray(verdicts, dtype=bool),
+        test_size=0.25,
+        random_state=42,
+        stratify=verdicts
+    )
+
+    quadratic_classifier = PolynomialBoundaryClassifier(degree=2)
+    quadratic_classifier.fit(X_train, y_train)
+
+    cubic_classifier = PolynomialBoundaryClassifier(degree=3)
+    cubic_classifier.fit(X_train, y_train)
+
+    test_predictions_quadratic = quadratic_classifier.predict(X_test)
+    test_predictions_cubic = cubic_classifier.predict(X_test)
+
+    print("Test accuracy:", accuracy_score(y_test, test_predictions_quadratic))
+    print(confusion_matrix(y_test, test_predictions_quadratic))
+    print(classification_report(y_test, test_predictions_quadratic))
+    print("Test accuracy:", accuracy_score(y_test, test_predictions_cubic))
+    print(confusion_matrix(y_test, test_predictions_cubic))
+    print(classification_report(y_test, test_predictions_cubic))
+
+    xx = np.linspace(0, 100, 1000)
+    yy = np.linspace(0, 100, 1000)
+
+    XX, YY = np.meshgrid(xx, yy)
+
+    # Evaluate classifier at every grid point
+    grid_points = np.column_stack((XX.ravel(), YY.ravel()))
+
+    grid_results_quadratic = quadratic_classifier.decision_function(grid_points).reshape(XX.shape)
+    grid_results_cubic = cubic_classifier.decision_function(grid_points).reshape(XX.shape)
+
     
+    plt.figure(figsize=(10, 10))
+    
+    for r,color in zip([grid_results_quadratic, grid_results_cubic], ['purple', 'blue']):
+            plt.contour(
+                XX, YY, r,
+                levels=[0],
+                colors=color,
+                linewidths=2
+            )
 
+    plt.scatter(x, y, c=colors)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Classifier={T_TUNE}.png"), dpi=200)
+    plt.close()
 
+    #RBF regression 
+    rbf = RBFBoundaryRegression(
+        kernel="thin_plate_spline",
+        smoothing=0.01
+    )
 
+    rbf.fit(boundary_points, dependent_axis=1)
 
+    print(rbf.get_info())
 
+    x_values = np.linspace(0.1, 100, 10000)
+    
+    predicted_boundaries = rbf.predict(x_values)
+
+    plt.figure(figsize=(10, 10))
+    
+    
+    plt.plot(x_values, predicted_boundary, label=f"RBF, kernel={rbf.kernel}, smoothing={rbf.smoothing}")
+
+    plt.scatter(x, y, c=colors)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_RBF={T_TUNE}.png"), dpi=200)
+    plt.close()
+
+    #Gaussian regression
+    gpr = GaussianProcessBoundaryRegression(kernel = 'matern', length_scale = 3.0,nu = 1.5, alpha=1e-4)
+    gpr.fit(boundary_points, dependent_axis=1)
+
+    print(gpr.get_info())
+
+    x_values = np.linspace(0.1, 100, 10000)
+    
+    predicted_boundaries, uncertanty = gpr.predict(x_values, return_std=True)
+
+    plt.figure(figsize=(10, 10))
+    
+    
+    plt.plot(x_values, predicted_boundary, label=f"GPR, kernel={gpr.kernel_type}, \nlength_scale={gpr.length_scale}, \nalpha={gpr.alpha}, \nnu={gpr.nu}, \nn_restarts_optimizer={gpr.n_restarts_optimizer}")
+
+    plt.fill_between(
+        x_values,
+        predicted_boundaries - 1.96 * uncertanty,
+        predicted_boundaries + 1.96 * uncertanty,
+        alpha=0.3,
+        label="95% uncertainty interval"
+    )
+    
+    plt.scatter(x, y, c=colors)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_GPR={T_TUNE}.png"), dpi=200)
+    plt.close()
 
     # simulation = System((tuple([5]*3)), 4.0)
     # simulation_with_initial_queues = System(tuple([5]*3), 4.0)
