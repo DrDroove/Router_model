@@ -20,7 +20,7 @@ from Gaussian_Process_Regression import *
 
 
 #print(simulation.snapshots)
-def drawAllGraphs(snapshots, lambdas, postfix=""):
+def draw_all_graphs(snapshots, lambdas, postfix=""):
     output_dir = "plots"
     os.makedirs(output_dir, exist_ok=True)
 
@@ -202,7 +202,13 @@ def check_if_stationary_with_phanthom_sim_v2(
 
     return False, None
 
-def check_if_stationary_with_hamed_rao_test(mean_queues_lengths, window_size=1000, min_warmup=0, step_size=1000, alpha=0.01):
+def check_if_stationary_with_hamed_rao_test(
+    mean_queues_lengths, 
+    window_size=1000, 
+    min_warmup=0, 
+    step_size=1000, 
+    alpha=0.01
+):
     start_index = min_warmup + window_size
     if start_index> len(mean_queues_lengths):
         print("Too small")
@@ -230,25 +236,24 @@ def check_if_stationary_with_hamed_rao_test(mean_queues_lengths, window_size=100
             return True, current_idx
     return False, None
 
-def isOverloaded(queues_lengths, lag, threshold):
-    isOverloaded = []
+def is_stationary(queues_lengths, lag, threshold):
+    is_stationary = []
     for thread_idx in range(NUMBER_OF_THREADS):
         thread_lengths = [q[thread_idx] for q in queues_lengths]
         acf_values = acf(thread_lengths, nlags=lag)
-        isOverloaded.append(acf_values[-1]>threshold)
-        #print(isOverloaded[-1])
-    return any(isOverloaded)
+        is_stationary.append(acf_values[-1]<threshold)
+    return any(is_stationary)
 
-def isOverloaded_v2(mean_queues_lengths, threshold=0.1):
+def is_stationary_v2(mean_queues_lengths, threshold=0.1):
     length = len(mean_queues_lengths)
     rel_dif = [np.abs(mqlh-mqle)/mqle for mqlh, mqle in zip(mean_queues_lengths[length*3//4], mean_queues_lengths[-1])]
     
-    if np.max(rel_dif) > threshold:
+    if np.max(rel_dif) < threshold:
         return True
     else:
         return False
 
-def generateLambdaMesh(minLambda, maxLambda, step):
+def generate_lambda_mesh(minLambda, maxLambda, step):
     lambdas = []
     for l1 in np.arange(1, maxLambda, step):
         for l2 in np.arange(1, maxLambda, step):
@@ -256,7 +261,7 @@ def generateLambdaMesh(minLambda, maxLambda, step):
                 lambdas.append((l1,l2,l3))
     return lambdas
 
-def generateLambdaMesh_2d(minLambda, maxLambda, step):
+def generate_lambda_mesh_2d(minLambda, maxLambda, step):
     lambdas = [[]]
     i = 0
     for l1 in np.arange(minLambda, maxLambda, step):
@@ -266,7 +271,7 @@ def generateLambdaMesh_2d(minLambda, maxLambda, step):
         lambdas.append([])
     return lambdas[:-1]
 
-def generateLambdaMesh_govno(step):
+def generate_lambda_mesh_govno(step):
     lambdas = []
     for l1 in np.arange(0+step, 5, step):
         for l2 in np.arange(65+step, 75, step):
@@ -274,7 +279,7 @@ def generateLambdaMesh_govno(step):
                 lambdas.append((l1,l2,l3))
     return lambdas
 
-def generateEpsilonMesh(Eps_max, step):
+def generate_epsilon_mesh(Eps_max, step):
     epsilons = []
     for e1 in np.arange(0, Eps_max, step):
         for e2 in np.arange(0, Eps_max, step):
@@ -282,7 +287,7 @@ def generateEpsilonMesh(Eps_max, step):
                 epsilons.append((e1,e2,e3))
     return epsilons
 
-def generateEpsillonGradientMesh(Eps_max):
+def generate_epsillon_gradient_mesh(Eps_max):
     epsilons = []
     step = Eps_max//2.0
     for e1 in np.arange(0, Eps_max, step):
@@ -291,13 +296,13 @@ def generateEpsillonGradientMesh(Eps_max):
                 epsilons.append((e1,e2,e3))
     return epsilons
 
-def generateTMaxMesh(maxTMax, step):
+def generate_TMax_mesh(maxTMax, step):
     TMaxes = []
     for t in np.arange(step, maxTMax, step):
         TMaxes.append(t)
     return TMaxes
 
-def generateTMaxGradientMesh(maxTMax):
+def generate_TMax_gradient_mesh(maxTMax):
     TMaxes = []
     step = maxTMax//4
     for t in np.arange(1, maxTMax, step):
@@ -324,13 +329,13 @@ def run_simulation_for_stationary_mode(epsilons, TMax, lambdas):
 
 
     simulation.run()
-    #drawAllGraphs(simulation.snapshots, lambdas)
+    #draw_all_graphs(simulation.snapshots, lambdas)
 
     mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
 
     # tail = int(len(queues_lengths)*0.5)
 
-    return (isOverloaded_v2(mean_queues_lengths), lambdas)
+    return (is_stationary_v2(mean_queues_lengths), lambdas)
 
 def run_simulation_for_stationary_mode_v2(epsilons, TMax, lambdas, sample_size):
     results = []
@@ -536,7 +541,7 @@ def safe_run_simulation_for_stationary_mode_v2(epsilons, TMax, sample_size, lamb
     except RuntimeError:
         return (False, lambdas)
 
-def gradientTMaxOptimization(lambdas, epsillons, stepVariants, weight_for_CVaR_99, startPoint):
+def gradient_TMax_optimization(lambdas, epsillons, stepVariants, weight_for_CVaR_99, startPoint):
     print(f'running TMax grad-opt for TMax:{startPoint}')
     curr_point = startPoint
     curr_optimization_metric = 10**8
@@ -566,7 +571,7 @@ def gradientTMaxOptimization(lambdas, epsillons, stepVariants, weight_for_CVaR_9
                 
     return (curr_optimization_metric, curr_point)
 
-def gradientEpsillonOptimization(lambdas, TMax, stepVariants, weight_for_CVaR_99, startPoint):
+def gradient_epsillon_optimization(lambdas, TMax, stepVariants, weight_for_CVaR_99, startPoint):
     print(f'running Epsillon grad-opt for Epsillons:{startPoint}')
     curr_point = startPoint
     curr_optimization_metric = 10**8
@@ -603,11 +608,14 @@ def draw_lambdas_vs_overload(name):
         'x': [item[1][0] for item in results],
         'y': [item[1][1] for item in results],
         'z': [item[1][2] for item in results],
-        'isOverloaded': [item[0] for  item in results]
+        'is_stationary': [item[0] for  item in results]
     })
 
-    df['color_rgba'] = np.where(df['isOverloaded'], 'rgba(255,0,0,0)', 'rgba(0,128,0,1.0)')
-    df['text'] = np.where(df['isOverloaded'], 'Overloaded', 'Not overloaded')
+    _GREEN = 'rgba(0,128,0,1.0)'
+    _RED = 'rgba(255,0,0,0)'
+
+    df['color_rgba'] = np.where(df['is_stationary'], _GREEN, _RED)
+    df['text'] = np.where(df['is_stationary'], 'Not overloaded', 'Overloaded')
     
 
     fig = go.Figure(data=[go.Scatter3d(
@@ -724,7 +732,7 @@ def anylize_gradient_epsillons_optimization(filename):
 
 if __name__=='__main__':
 
-    # ARRAY_OF_LAMBDAS = generateLambdaMesh(4, 0.1)
+    # ARRAY_OF_LAMBDAS = generate_lambda_mesh(4, 0.1)
     # results = []
     
     # with ProcessPoolExecutor(max_workers=15) as executor:
@@ -733,7 +741,7 @@ if __name__=='__main__':
     # with open('lambdas_vs_overload.pkl', 'wb') as f:
     #     pickle.dump(results, f)
 
-    # ARRAY_OF_EPSILONS = generateEpsilonMesh(T_MAX*10, 1)
+    # ARRAY_OF_EPSILONS = generate_epsilon_mesh(T_MAX*10, 1)
     # results = []
 
     # run_with_configured_lambdas = partial(run_simulation_for_epsilon_optimisation, (3,5,1))
@@ -744,7 +752,7 @@ if __name__=='__main__':
     # with open('epsilons_vs_mean_times.pkl', 'wb') as f:
     #     pickle.dump(results, f)
 
-    # ARRAY_OF_Tmaxes = generateTMaxMesh(100, 0.1)
+    # ARRAY_OF_Tmaxes = generate_TMax_mesh(100, 0.1)
     # results = []
 
     # run_with_configured_lambdas_and_eps = partial(run_simulation_for_TMax_optimaztion, (1.5,2,1), (5,5,5))
@@ -757,7 +765,7 @@ if __name__=='__main__':
 
     # TMax = anylize_TMax_optimization('Tmaxes_vs_mean_times.pkl')
     
-    # ARRAY_OF_EPSILONS = generateEpsilonMesh(TMax*10, 1)
+    # ARRAY_OF_EPSILONS = generate_epsilon_mesh(TMax*10, 1)
     # results = []
 
     # run_with_configured_lambda_and_TMax = partial(run_simulation_for_epsilon_optimisation, (1.5,2,1), TMax)
@@ -790,7 +798,7 @@ if __name__=='__main__':
 
     # NUMBER_OF_THREADS = 15
 
-    # ARRAY_OF_Tmaxes = generateTMaxMesh(30.0, 1)
+    # ARRAY_OF_Tmaxes = generate_TMax_mesh(30.0, 1)
     # results = []
 
     # run_with_configured_lambdas_and_eps = partial(safe_run_simulation_for_TMax_optimaztion, tuple([5]*15), tuple([5]*15))
@@ -817,11 +825,11 @@ if __name__=='__main__':
     # while epsillons!=last_epsillons or not ((TMax>last_Tmax-1e-3) and (TMax< last_Tmax+1e-3)):
     #     # last_Tmax = TMax
     #     # last_epsillons = epsillons
-    #     # ARRAY_OF_TMAXES = generateTMaxGradientMesh(8)
+    #     # ARRAY_OF_TMAXES = generate_TMax_gradient_mesh(8)
 
     #     # results = []
 
-    #     # run_gradient_Tmax_optimization = partial(gradientTMaxOptimization, lambdas, epsillons, [0.5, 0.2, 0,1], 1)
+    #     # run_gradient_Tmax_optimization = partial(gradient_TMax_optimization, lambdas, epsillons, [0.5, 0.2, 0,1], 1)
         
     #     # with ProcessPoolExecutor(max_workers=4) as executor:
     #     #     for res in executor.map(run_gradient_Tmax_optimization, ARRAY_OF_TMAXES):
@@ -836,7 +844,7 @@ if __name__=='__main__':
     #     #print(results)
     #     results = []
 
-    #     run_gradient_epsillon_optimization = partial(gradientEpsillonOptimization, lambdas, TMax, [3.0, 2.0, 1.0], 1)
+    #     run_gradient_epsillon_optimization = partial(gradient_epsillon_optimization, lambdas, TMax, [3.0, 2.0, 1.0], 1)
 
     #     with ProcessPoolExecutor(max_workers=4) as executor:
     #         for res in executor.map(run_gradient_epsillon_optimization, ARRAY_OF_EPSILLONS):
@@ -874,11 +882,11 @@ if __name__=='__main__':
     # while epsillons!=last_epsillons or not ((TMax>last_Tmax-1e-3) and (TMax< last_Tmax+1e-3)):
     #     last_Tmax = TMax
     #     last_epsillons = epsillons
-    #     ARRAY_OF_TMAXES = generateTMaxGradientMesh(4)
+    #     ARRAY_OF_TMAXES = generate_TMax_gradient_mesh(4)
 
     #     results = []
 
-    #     run_gradient_Tmax_optimization = partial(gradientTMaxOptimization, lambdas, epsillons, [5.0, 1.0, 0.5, 0,1], 1)
+    #     run_gradient_Tmax_optimization = partial(gradient_TMax_optimization, lambdas, epsillons, [5.0, 1.0, 0.5, 0,1], 1)
         
     #     with ProcessPoolExecutor(max_workers=4) as executor:
     #         for res in executor.map(run_gradient_Tmax_optimization, ARRAY_OF_TMAXES):
@@ -887,13 +895,13 @@ if __name__=='__main__':
     #         pickle.dump(results, f)
     #     TMax, mean_wait_time = anylize_gradient_TMax_optimization('Tmaxes_vs_mean_times_gradient_HOT.pkl')
 
-    #     ARRAY_OF_EPSILLONS = generateEpsillonGradientMesh(TMax*10)
+    #     ARRAY_OF_EPSILLONS = generate_epsillon_gradient_mesh(TMax*10)
 
 
     #     print(results)
     #     results = []
 
-    #     run_gradient_epsillon_optimization = partial(gradientEpsillonOptimization, lambdas, TMax, [3.0, 2.0, 1.0], 1)
+    #     run_gradient_epsillon_optimization = partial(gradient_epsillon_optimization, lambdas, TMax, [3.0, 2.0, 1.0], 1)
 
     #     with ProcessPoolExecutor(max_workers=4) as executor:
     #         for res in executor.map(run_gradient_epsillon_optimization, ARRAY_OF_EPSILLONS):
@@ -935,7 +943,7 @@ if __name__=='__main__':
     # mean_queue_lenghs = [snap[4] for snap in simulation.snapshots]
     # mean_wait_times = [snap[5] for snap in simulation.snapshots]
     # mean_state_duration = [snap[2] for snap in simulation.snapshots]
-    # drawAllGraphs(snapshots=simulation.snapshots, lambdas= lambdas)
+    # draw_all_graphs(snapshots=simulation.snapshots, lambdas= lambdas)
 
     # result12 = check_if_stationary_v2(mean_queue_lenghs,mean_wait_times,mean_state_duration,25,0.05,0.05,0.05)
     
@@ -955,13 +963,13 @@ if __name__=='__main__':
 
     # queues_lengths = [snap[3] for snap in simulation.snapshots]
     # mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
-    # print(isOverloaded(queues_lengths,250,0.7), isOverloaded_v2(mean_queues_lengths))
+    # print(is_stationary(queues_lengths,250,0.7), is_stationary_v2(mean_queues_lengths))
 
     # lambdas = (2,70,1)
     # epsillons = (5,5,5)
 
     # results = []
-    # ARRAY_OF_LAMBDAS = generateLambdaMesh(0, 100, 10)
+    # ARRAY_OF_LAMBDAS = generate_lambda_mesh(0, 100, 10)
 
     # name = "Demo_Lambdas_vs_overload_100_GENERAL"
 
@@ -981,7 +989,7 @@ if __name__=='__main__':
     epsillons = (5,5,5)
     
     results = []
-    ARRAY_OF_LAMBDAS = generateLambdaMesh_2d(1, 100, 2)
+    ARRAY_OF_LAMBDAS = generate_lambda_mesh_2d(1, 100, 2)
 
     name = "Demo_Lambdas_vs_overload_2d_100_GENERAL"
 
@@ -1160,6 +1168,8 @@ if __name__=='__main__':
     plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_GPR={T_TUNE}.png"), dpi=200)
     plt.close()
 
+    
+
     # simulation = System((tuple([5]*3)), 4.0)
     # simulation_with_initial_queues = System(tuple([5]*3), 4.0)
     # simulation_with_initial_queues.threads_queues = [RingBuffer(1000000, 1000) for n in range(NUMBER_OF_THREADS)]
@@ -1191,13 +1201,13 @@ if __name__=='__main__':
     # mean_queue_lenghs = [snap[4] for snap in simulation.snapshots]
     # mean_wait_times = [snap[5] for snap in simulation.snapshots]
     # mean_state_duration = [snap[2] for snap in simulation.snapshots]
-    # drawAllGraphs(snapshots=simulation.snapshots, lambdas= lambdas)
+    # draw_all_graphs(snapshots=simulation.snapshots, lambdas= lambdas)
 
     # times_with_initial_queues = [snap[0] for snap in simulation_with_initial_queues.snapshots]
     # mean_queue_lenghs_with_initial_queues = [snap[4] for snap in simulation_with_initial_queues.snapshots]
     # mean_wait_times_with_initial_queues = [snap[5] for snap in simulation_with_initial_queues.snapshots]
     # mean_state_duration_with_initial_queues = [snap[2] for snap in simulation_with_initial_queues.snapshots]
-    # drawAllGraphs(snapshots=simulation_with_initial_queues.snapshots, lambdas= lambdas,postfix= "with_initial_queues")
+    # draw_all_graphs(snapshots=simulation_with_initial_queues.snapshots, lambdas= lambdas,postfix= "with_initial_queues")
 
     # result12 = check_if_stationary_v2(mean_queue_lenghs,mean_wait_times,mean_state_duration,25,0.05,0.05,0.05)
     # result_phanthom = check_if_stationary_with_phanthom_sim(mean_queue_lenghs, mean_queue_lenghs_with_initial_queues, 0.01)
