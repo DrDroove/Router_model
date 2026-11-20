@@ -5,18 +5,92 @@ import pickle
 import plotly.graph_objects as go
 import pandas as pd
 import pymannkendall as mk
+import inspect
 
-from functools import partial
+from functools import partial, wraps
 from concurrent.futures import ProcessPoolExecutor
 from statsmodels.tsa.stattools import acf
 from mpl_toolkits.mplot3d import Axes3D
 from statistics import mean
+from dataclasses import dataclass
 
 from system import *
 from events import *
 from regressions import *
 from RBF_regression import *
 from Gaussian_Process_Regression import *
+
+@dataclass(frozen=True)
+class SimulationParameters:
+    lambdas: tuple[float, ...]
+    epsilons: tuple[float, ...]
+    TMax: float
+
+@dataclass(frozen=True)
+class SimulationSuccess:
+    result: list[
+        tuple[
+            float, #sys_time
+            tuple[int, int], #sys_state
+            list[float], #last_mean_state_duration
+            list[int], #length_of_all_queues
+            list[float], #mean_queue_lenghs
+            list[float] #mean_wait_times
+        ]
+    ]
+    params: SimulationParameters
+
+@dataclass(frozen=True)
+class SimulationFailure:
+    params: SimulationParameters
+
+# def safe(func):
+#     signature = inspect.signature(func)
+    
+#     @wraps(func)
+#     def wrapper(*args, **kwargs):
+#         try:
+#             return func(*args, **kwargs)
+#         except RuntimeError:
+#             bound = signature.bind(*args, **kwargs)
+#             bound.apply_defaults()
+#             return (None, *bound.arguments.values())
+
+#     return wrapper
+
+
+def run_simulation(params: SimulationParameters) -> SimulationSuccess | SimulationFailure:
+    expected_group_size = PROBABILITY_OF_SMALL_GROUP*SIZE_OF_SMALL_GROUP + (1-PROBABILITY_OF_SMALL_GROUP)*SIZE_OF_BIG_GROUP
+    expected_capacity = T_END*sum(params.lambdas)*(1+expected_group_size) + (2*T_END)/(min(params.epsilons)/CONNECTION_SPEED + T_TUNE)
+    
+    simulation = System(params.epsilons, params.TMax, expected_capacity)
+    
+    t = np.zeros(NUMBER_OF_THREADS)
+    while True: #Income generation
+        array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
+        array_tau = -np.log(array_tau)/params.lambdas
+        t += array_tau
+        if np.all(t > T_END):
+            break
+        for i in range(NUMBER_OF_THREADS):
+            if t[i]<= T_END:
+                random_size = np.random.uniform()
+                if random_size < PROBABILITY_OF_SMALL_GROUP:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+                else:
+                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+
+    
+    
+    try:
+        simulation.run()
+    except RuntimeError:
+        return SimulationFailure(params= params)
+
+    return SimulationSuccess(
+        result= simulation.get_data(),
+        params= params
+    )
 
 
 #print(simulation.snapshots)
@@ -84,12 +158,12 @@ def draw_all_graphs(snapshots, lambdas, postfix=""):
 
 def check_if_stationary(mean_queues_lengths, mean_wait_times, mean_state_durations, number_of_steps, tolerancy_lengths, tolerancy_wait_times, tolerancy_state_durations):
     step = len(mean_queues_lengths)//number_of_steps
-    thread_is_stationary = [False]*len(mean_queue_lenghs[0])
+    thread_is_stationary = [False]*len(mean_queues_lengths[0])
     for t1 in range(0, len(mean_queues_lengths)-step, step):
         t2 = t1 + step//4
         t3 = t1 + step//2
         t4 = t1 + 3*step//4
-        for i in range(0,len(mean_queue_lenghs[0])):
+        for i in range(0,len(mean_queues_lengths[0])):
             delta_lengths = max(mean_queues_lengths[t1][i], mean_queues_lengths[t2][i], mean_queues_lengths[t3][i], mean_queues_lengths[t4][i]) - min(mean_queues_lengths[t1][i], mean_queues_lengths[t2][i], mean_queues_lengths[t3][i], mean_queues_lengths[t4][i])
             delta_wait_times = max(mean_wait_times[t1][i], mean_wait_times[t2][i], mean_wait_times[t3][i], mean_wait_times[t4][i]) - min(mean_wait_times[t1][i], mean_wait_times[t2][i], mean_wait_times[t3][i], mean_wait_times[t4][i])
             delta_state_duration = max(mean_state_durations[t1][i], mean_state_durations[t2][i], mean_state_durations[t3][i], mean_state_durations[t4][i]) - min(mean_state_durations[t1][i], mean_state_durations[t2][i], mean_state_durations[t3][i], mean_state_durations[t4][i])
@@ -309,31 +383,11 @@ def generate_TMax_gradient_mesh(maxTMax):
         TMaxes.append(t)
     return TMaxes
 
-def run_simulation_for_stationary_mode(epsilons, TMax, lambdas):
-    simulation = System(epsilons, TMax)
-
-    t = np.zeros(NUMBER_OF_THREADS)
-    while True: #Income generation
-        array_tau = np.random.uniform(size=NUMBER_OF_THREADS)
-        array_tau = -np.log(array_tau)/lambdas
-        t += array_tau
-        if np.all(t > T_END):
-            break
-        for i in range(NUMBER_OF_THREADS):
-            if t[i]<= T_END:
-                random_size = np.random.uniform()
-                if random_size < PROBABILITY_OF_SMALL_GROUP:
-                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
-                else:
-                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
-
-
-    simulation.run()
-    #draw_all_graphs(simulation.snapshots, lambdas)
+def run_simulation_for_stationary_mode(params: SimulationParameters):
+    run_simulation(params)
 
     mean_queues_lengths = [snap[4] for snap in simulation.snapshots]
 
-    # tail = int(len(queues_lengths)*0.5)
 
     return (is_stationary_v2(mean_queues_lengths), lambdas)
 
@@ -486,7 +540,7 @@ def run_simulation_for_epsilon_optimisation(lambdas, TMax, epsilons):
     return (mean_wait_time, simulation.kll.get_quantile(0.99), mean_wait_times_by_threads_last, epsilons)
 
 def run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax):
-    print(f'running TMax plane-old-opt for TMax:{TMax}')
+    print(f'running TMax plain-old-opt for TMax:{TMax}')
 
     simulation = System(epsilons, TMax)
 
@@ -523,7 +577,7 @@ def safe_run_simulation_for_TMax_optimaztion(lambdas, epsilons, TMax):
     except RuntimeError:
         return (None, TMax)
     
-def safe_run_simulation_for_Epsillon_optimaztion(lambdas, TMax, epsilons):
+def safe_run_simulation_for_epsillon_optimaztion(lambdas, TMax, epsilons):
     try:
         return run_simulation_for_epsilon_optimisation(lambdas, TMax, epsilons)
     except RuntimeError:
@@ -533,7 +587,7 @@ def safe_run_simulation_for_stationary_mode(epsilons, TMax, lambdas):
     try:
         return run_simulation_for_stationary_mode(epsilons, TMax, lambdas)
     except RuntimeError:
-        return (True, lambdas)
+        return (False, lambdas)
 
 def safe_run_simulation_for_stationary_mode_v2(epsilons, TMax, sample_size, lambdas):
     try:
@@ -541,12 +595,12 @@ def safe_run_simulation_for_stationary_mode_v2(epsilons, TMax, sample_size, lamb
     except RuntimeError:
         return (False, lambdas)
 
-def gradient_TMax_optimization(lambdas, epsillons, stepVariants, weight_for_CVaR_99, startPoint):
+def gradient_TMax_optimization(lambdas, epsilons, stepVariants, weight_for_CVaR_99, startPoint):
     print(f'running TMax grad-opt for TMax:{startPoint}')
     curr_point = startPoint
     curr_optimization_metric = 10**8
 
-    test_variant = partial(safe_run_simulation_for_TMax_optimaztion, lambdas, epsillons)
+    test_variant = partial(safe_run_simulation_for_TMax_optimaztion, lambdas, epsilons)
 
     tested_vars = []
 
@@ -572,11 +626,11 @@ def gradient_TMax_optimization(lambdas, epsillons, stepVariants, weight_for_CVaR
     return (curr_optimization_metric, curr_point)
 
 def gradient_epsillon_optimization(lambdas, TMax, stepVariants, weight_for_CVaR_99, startPoint):
-    print(f'running Epsillon grad-opt for Epsillons:{startPoint}')
+    print(f'running Epsillon grad-opt for epsilons:{startPoint}')
     curr_point = startPoint
     curr_optimization_metric = 10**8
 
-    test_variant = partial(safe_run_simulation_for_Epsillon_optimaztion, lambdas, TMax)
+    test_variant = partial(safe_run_simulation_for_epsillon_optimaztion, lambdas, TMax)
 
     tested_vars=[]
 
@@ -732,6 +786,14 @@ def anylize_gradient_epsillons_optimization(filename):
 
 if __name__=='__main__':
 
+    tmp = run_simulation(SimulationParameters(
+        lambdas=(40,40),
+        epsilons=(100,100),
+        TMax=5
+    ))
+
+        
+
     # ARRAY_OF_LAMBDAS = generate_lambda_mesh(4, 0.1)
     # results = []
     
@@ -815,21 +877,21 @@ if __name__=='__main__':
     # print("------------TMaxes_MT_done")
 
     # lambdas = tuple([5]*15)
-    # epsillons = tuple([5]*15)
+    # epsilons = tuple([5]*15)
 
     # last_epsillons = tuple([4]*15)
     # last_Tmax = 1
     # TMax = 3.6
     # mean_wait_time = 10**8
 
-    # while epsillons!=last_epsillons or not ((TMax>last_Tmax-1e-3) and (TMax< last_Tmax+1e-3)):
+    # while epsilons!=last_epsillons or not ((TMax>last_Tmax-1e-3) and (TMax< last_Tmax+1e-3)):
     #     # last_Tmax = TMax
-    #     # last_epsillons = epsillons
+    #     # last_epsillons = epsilons
     #     # ARRAY_OF_TMAXES = generate_TMax_gradient_mesh(8)
 
     #     # results = []
 
-    #     # run_gradient_Tmax_optimization = partial(gradient_TMax_optimization, lambdas, epsillons, [0.5, 0.2, 0,1], 1)
+    #     # run_gradient_Tmax_optimization = partial(gradient_TMax_optimization, lambdas, epsilons, [0.5, 0.2, 0,1], 1)
         
     #     # with ProcessPoolExecutor(max_workers=4) as executor:
     #     #     for res in executor.map(run_gradient_Tmax_optimization, ARRAY_OF_TMAXES):
@@ -851,10 +913,10 @@ if __name__=='__main__':
     #             results.append(res)
     #     with open('Epsillons_vs_mean_times_gradient_MT.pkl', 'wb') as f:
     #         pickle.dump(results, f)
-    #     epsillons, mean_wait_time = anylize_gradient_epsillons_optimization('Epsillons_vs_mean_times_gradient_MT.pkl')
-    #     #print(epsillons, mean_wait_time)
+    #     epsilons, mean_wait_time = anylize_gradient_epsillons_optimization('Epsillons_vs_mean_times_gradient_MT.pkl')
+    #     #print(epsilons, mean_wait_time)
 
-    #     print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {TMax}\nEpsillons: {epsillons}')
+    #     print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {TMax}\nEpsillons: {epsilons}')
     #     print(results)
 
     # print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {last_Tmax}\nEpsillons: {last_epsillons}')
@@ -871,7 +933,7 @@ if __name__=='__main__':
     # anylize_TMax_optimization('Tmaxes_vs_mean_times_repeated_55.pkl')
 
     # lambdas = (2,70,1)
-    # epsillons = (5,5,5)
+    # epsilons = (5,5,5)
 
     # last_epsillons = (1,1,1)
     # last_Tmax = 1
@@ -879,14 +941,14 @@ if __name__=='__main__':
 
     # mean_wait_time = 10**8
 
-    # while epsillons!=last_epsillons or not ((TMax>last_Tmax-1e-3) and (TMax< last_Tmax+1e-3)):
+    # while epsilons!=last_epsillons or not ((TMax>last_Tmax-1e-3) and (TMax< last_Tmax+1e-3)):
     #     last_Tmax = TMax
-    #     last_epsillons = epsillons
+    #     last_epsillons = epsilons
     #     ARRAY_OF_TMAXES = generate_TMax_gradient_mesh(4)
 
     #     results = []
 
-    #     run_gradient_Tmax_optimization = partial(gradient_TMax_optimization, lambdas, epsillons, [5.0, 1.0, 0.5, 0,1], 1)
+    #     run_gradient_Tmax_optimization = partial(gradient_TMax_optimization, lambdas, epsilons, [5.0, 1.0, 0.5, 0,1], 1)
         
     #     with ProcessPoolExecutor(max_workers=4) as executor:
     #         for res in executor.map(run_gradient_Tmax_optimization, ARRAY_OF_TMAXES):
@@ -908,10 +970,10 @@ if __name__=='__main__':
     #             results.append(res)
     #     with open('Epsillons_vs_mean_times_gradient_HOT.pkl', 'wb') as f:
     #         pickle.dump(results, f)
-    #     epsillons, mean_wait_time = anylize_gradient_epsillons_optimization('Epsillons_vs_mean_times_gradient_HOT.pkl')
-    #     #print(epsillons, mean_wait_time)
+    #     epsilons, mean_wait_time = anylize_gradient_epsillons_optimization('Epsillons_vs_mean_times_gradient_HOT.pkl')
+    #     #print(epsilons, mean_wait_time)
 
-    #     print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {TMax}\nEpsillons: {epsillons}')
+    #     print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {TMax}\nEpsillons: {epsilons}')
     #     print(results)
 
     # print(f'Results\nMean wait time: {mean_wait_time}\nTmax: {last_Tmax}\nEpsillons: {last_epsillons}')
@@ -966,14 +1028,14 @@ if __name__=='__main__':
     # print(is_stationary(queues_lengths,250,0.7), is_stationary_v2(mean_queues_lengths))
 
     # lambdas = (2,70,1)
-    # epsillons = (5,5,5)
+    # epsilons = (5,5,5)
 
     # results = []
     # ARRAY_OF_LAMBDAS = generate_lambda_mesh(0, 100, 10)
 
     # name = "Demo_Lambdas_vs_overload_100_GENERAL"
 
-    # run_stationary = partial(safe_run_simulation_for_stationary_mode, epsillons, 20)
+    # run_stationary = partial(safe_run_simulation_for_stationary_mode, epsilons, 20)
 
     # with ProcessPoolExecutor(max_workers=12) as executor:
     #     for res in executor.map(run_stationary, ARRAY_OF_LAMBDAS):
@@ -984,189 +1046,192 @@ if __name__=='__main__':
     # draw_lambdas_vs_overload(name)
    
 
+    #++++++++++++++++++++++++++++++++++++++ML++++++++++++++++++++++++++++++
+
+    # epsilons = (5,5,5)
     
+    # results = []
+    # ARRAY_OF_LAMBDAS = generate_lambda_mesh_2d(1, 100, 2)
 
-    epsillons = (5,5,5)
+    # name = "Demo_Lambdas_vs_overload_2d_100_GENERAL"
+
+    # run_stationary = partial(run_simulation_for_stationary_mode_in_slice_smart, epsilons, 20, 3)
+
+    # # with ProcessPoolExecutor(max_workers=12) as executor:
+    # #     for res in executor.map(run_stationary, ARRAY_OF_LAMBDAS):
+    # #         results.append(res)
+    # # with open(name+'.pkl', 'wb') as f:
+    # #     pickle.dump(results, f)
+
+    # with open(name+'.pkl', 'rb') as f:
+    #     results = pickle.load(f)
+    # lambdas = [lambda_pair
+    #             for _, r in results 
+    #             for _, lambda_pair in r.values()]
+    # verdicts = [verdict 
+    #             for _, r in results 
+    #             for verdict, _ in r.values()]
+
+    # output_dir = "plots"
+    # os.makedirs(output_dir, exist_ok=True)
+
+    # x, y = zip(*lambdas)
+
+    # colors = ['green' if verdict else 'red' for verdict in verdicts]
+
+
+    # #Boundary regression
+    # boundary_points = [r[l][1] for l, r in results]
+
+    # degrees = [2, 3, 4, 5, 6, 7,8,9,10,11, 12]
+    # models = [PolynomialBoundaryRegression(degree) for degree in degrees]
+    # for model in models:
+    #     model.fit(boundary_points, dependent_axis=1)
+    #     print(model.get_info())
+
+    # x_values = np.linspace(0.1, 100, 10000)
+
+    # predicted_boundaries = [models[2].predict(x_values), models[9].predict(x_values)]
+
+    # plt.figure(figsize=(10, 10))
     
-    results = []
-    ARRAY_OF_LAMBDAS = generate_lambda_mesh_2d(1, 100, 2)
+    # for predicted_boundary, degree in zip(predicted_boundaries, [4, 11]):
+    #     plt.plot(x_values, predicted_boundary, label=f"Degree {degree}")
 
-    name = "Demo_Lambdas_vs_overload_2d_100_GENERAL"
+    # plt.scatter(x, y, c=colors)
+    # plt.xlabel("Lambda 1")
+    # plt.ylabel("Lambda 2")
+    # plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Regression={T_TUNE}.png"), dpi=200)
+    # plt.close()
 
-    run_stationary = partial(run_simulation_for_stationary_mode_in_slice_smart, epsillons, 20, 3)
+    # #Classification regression
+    # from sklearn.model_selection import train_test_split
+    # from sklearn.metrics import (
+    #     accuracy_score,
+    #     confusion_matrix,
+    #     classification_report
+    # )
 
-    # with ProcessPoolExecutor(max_workers=12) as executor:
-    #     for res in executor.map(run_stationary, ARRAY_OF_LAMBDAS):
-    #         results.append(res)
-    # with open(name+'.pkl', 'wb') as f:
-    #     pickle.dump(results, f)
+    # X_train, X_test, y_train, y_test = train_test_split(
+    #     np.asarray(lambdas),
+    #     np.asarray(verdicts, dtype=bool),
+    #     test_size=0.25,
+    #     random_state=42,
+    #     stratify=verdicts
+    # )
 
-    with open(name+'.pkl', 'rb') as f:
-        results = pickle.load(f)
-    lambdas = [lambda_pair
-                for _, r in results 
-                for _, lambda_pair in r.values()]
-    verdicts = [verdict 
-                for _, r in results 
-                for verdict, _ in r.values()]
+    # quadratic_classifier = PolynomialBoundaryClassifier(degree=2)
+    # quadratic_classifier.fit(X_train, y_train)
 
-    output_dir = "plots"
-    os.makedirs(output_dir, exist_ok=True)
+    # cubic_classifier = PolynomialBoundaryClassifier(degree=3)
+    # cubic_classifier.fit(X_train, y_train)
 
-    x, y = zip(*lambdas)
+    # test_predictions_quadratic = quadratic_classifier.predict(X_test)
+    # test_predictions_cubic = cubic_classifier.predict(X_test)
 
-    colors = ['green' if verdict else 'red' for verdict in verdicts]
+    # print("Test accuracy:", accuracy_score(y_test, test_predictions_quadratic))
+    # print(confusion_matrix(y_test, test_predictions_quadratic))
+    # print(classification_report(y_test, test_predictions_quadratic))
+    # print("Test accuracy:", accuracy_score(y_test, test_predictions_cubic))
+    # print(confusion_matrix(y_test, test_predictions_cubic))
+    # print(classification_report(y_test, test_predictions_cubic))
 
+    # xx = np.linspace(0, 100, 1000)
+    # yy = np.linspace(0, 100, 1000)
 
-    #Boundary regression
-    boundary_points = [r[l][1] for l, r in results]
+    # XX, YY = np.meshgrid(xx, yy)
 
-    degrees = [2, 3, 4, 5, 6, 7,8,9,10,11, 12]
-    models = [PolynomialBoundaryRegression(degree) for degree in degrees]
-    for model in models:
-        model.fit(boundary_points, dependent_axis=1)
-        print(model.get_info())
+    # # Evaluate classifier at every grid point
+    # grid_points = np.column_stack((XX.ravel(), YY.ravel()))
 
-    x_values = np.linspace(0.1, 100, 10000)
-
-    predicted_boundaries = [models[2].predict(x_values), models[9].predict(x_values)]
-
-    plt.figure(figsize=(10, 10))
-    
-    for predicted_boundary, degree in zip(predicted_boundaries, [4, 11]):
-        plt.plot(x_values, predicted_boundary, label=f"Degree {degree}")
-
-    plt.scatter(x, y, c=colors)
-    plt.xlabel("Lambda 1")
-    plt.ylabel("Lambda 2")
-    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Regression={T_TUNE}.png"), dpi=200)
-    plt.close()
-
-    #Classification regression
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import (
-        accuracy_score,
-        confusion_matrix,
-        classification_report
-    )
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        np.asarray(lambdas),
-        np.asarray(verdicts, dtype=bool),
-        test_size=0.25,
-        random_state=42,
-        stratify=verdicts
-    )
-
-    quadratic_classifier = PolynomialBoundaryClassifier(degree=2)
-    quadratic_classifier.fit(X_train, y_train)
-
-    cubic_classifier = PolynomialBoundaryClassifier(degree=3)
-    cubic_classifier.fit(X_train, y_train)
-
-    test_predictions_quadratic = quadratic_classifier.predict(X_test)
-    test_predictions_cubic = cubic_classifier.predict(X_test)
-
-    print("Test accuracy:", accuracy_score(y_test, test_predictions_quadratic))
-    print(confusion_matrix(y_test, test_predictions_quadratic))
-    print(classification_report(y_test, test_predictions_quadratic))
-    print("Test accuracy:", accuracy_score(y_test, test_predictions_cubic))
-    print(confusion_matrix(y_test, test_predictions_cubic))
-    print(classification_report(y_test, test_predictions_cubic))
-
-    xx = np.linspace(0, 100, 1000)
-    yy = np.linspace(0, 100, 1000)
-
-    XX, YY = np.meshgrid(xx, yy)
-
-    # Evaluate classifier at every grid point
-    grid_points = np.column_stack((XX.ravel(), YY.ravel()))
-
-    grid_results_quadratic = quadratic_classifier.decision_function(grid_points).reshape(XX.shape)
-    grid_results_cubic = cubic_classifier.decision_function(grid_points).reshape(XX.shape)
+    # grid_results_quadratic = quadratic_classifier.decision_function(grid_points).reshape(XX.shape)
+    # grid_results_cubic = cubic_classifier.decision_function(grid_points).reshape(XX.shape)
 
     
-    plt.figure(figsize=(10, 10))
+    # plt.figure(figsize=(10, 10))
     
-    for r,color in zip([grid_results_quadratic, grid_results_cubic], ['purple', 'blue']):
-            plt.contour(
-                XX, YY, r,
-                levels=[0],
-                colors=color,
-                linewidths=2
-            )
+    # for r,color in zip([grid_results_quadratic, grid_results_cubic], ['purple', 'blue']):
+    #         plt.contour(
+    #             XX, YY, r,
+    #             levels=[0],
+    #             colors=color,
+    #             linewidths=2
+    #         )
 
-    plt.scatter(x, y, c=colors)
-    plt.xlabel("Lambda 1")
-    plt.ylabel("Lambda 2")
-    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Classifier={T_TUNE}.png"), dpi=200)
-    plt.close()
+    # plt.scatter(x, y, c=colors)
+    # plt.xlabel("Lambda 1")
+    # plt.ylabel("Lambda 2")
+    # plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Classifier={T_TUNE}.png"), dpi=200)
+    # plt.close()
 
-    #RBF regression 
-    rbf = RBFBoundaryRegression(
-        kernel="thin_plate_spline",
-        smoothing=0.01
-    )
+    # #RBF regression 
+    # rbf = RBFBoundaryRegression(
+    #     kernel="thin_plate_spline",
+    #     smoothing=0.01
+    # )
 
-    rbf.fit(boundary_points, dependent_axis=1)
+    # rbf.fit(boundary_points, dependent_axis=1)
 
-    print(rbf.get_info())
+    # print(rbf.get_info())
 
-    x_values = np.linspace(0.1, 100, 10000)
+    # x_values = np.linspace(0.1, 100, 10000)
     
-    predicted_boundaries = rbf.predict(x_values)
+    # predicted_boundaries = rbf.predict(x_values)
 
-    plt.figure(figsize=(10, 10))
-    
-    
-    plt.plot(x_values, predicted_boundary, label=f"RBF, kernel={rbf.kernel}, smoothing={rbf.smoothing}")
-
-    plt.scatter(x, y, c=colors)
-    plt.xlabel("Lambda 1")
-    plt.ylabel("Lambda 2")
-    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_RBF={T_TUNE}.png"), dpi=200)
-    plt.close()
-
-    #Gaussian regression
-    gpr = GaussianProcessBoundaryRegression(kernel = 'matern', length_scale = 3.0,nu = 1.5, alpha=1e-4)
-    gpr.fit(boundary_points, dependent_axis=1)
-
-    print(gpr.get_info())
-
-    x_values = np.linspace(0.1, 100, 10000)
-    
-    predicted_boundaries, uncertanty = gpr.predict(x_values, return_std=True)
-
-    plt.figure(figsize=(10, 10))
+    # plt.figure(figsize=(10, 10))
     
     
-    plt.plot(x_values, predicted_boundary, label=f"GPR, kernel={gpr.kernel_type}, \nlength_scale={gpr.length_scale}, \nalpha={gpr.alpha}, \nnu={gpr.nu}, \nn_restarts_optimizer={gpr.n_restarts_optimizer}")
+    # plt.plot(x_values, predicted_boundary, label=f"RBF, kernel={rbf.kernel}, smoothing={rbf.smoothing}")
 
-    plt.fill_between(
-        x_values,
-        predicted_boundaries - 1.96 * uncertanty,
-        predicted_boundaries + 1.96 * uncertanty,
-        alpha=0.3,
-        label="95% uncertainty interval"
-    )
+    # plt.scatter(x, y, c=colors)
+    # plt.xlabel("Lambda 1")
+    # plt.ylabel("Lambda 2")
+    # plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_RBF={T_TUNE}.png"), dpi=200)
+    # plt.close()
+
+    # #Gaussian regression
+    # gpr = GaussianProcessBoundaryRegression(kernel = 'matern', length_scale = 3.0,nu = 1.5, alpha=1e-4)
+    # gpr.fit(boundary_points, dependent_axis=1)
+
+    # print(gpr.get_info())
+
+    # x_values = np.linspace(0.1, 100, 10000)
     
-    plt.scatter(x, y, c=colors)
-    plt.xlabel("Lambda 1")
-    plt.ylabel("Lambda 2")
-    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_GPR={T_TUNE}.png"), dpi=200)
-    plt.close()
+    # predicted_boundaries, uncertanty = gpr.predict(x_values, return_std=True)
+
+    # plt.figure(figsize=(10, 10))
+    
+    
+    # plt.plot(x_values, predicted_boundary, label=f"GPR, kernel={gpr.kernel_type}, \nlength_scale={gpr.length_scale}, \nalpha={gpr.alpha}, \nnu={gpr.nu}, \nn_restarts_optimizer={gpr.n_restarts_optimizer}")
+
+    # plt.fill_between(
+    #     x_values,
+    #     predicted_boundaries - 1.96 * uncertanty,
+    #     predicted_boundaries + 1.96 * uncertanty,
+    #     alpha=0.3,
+    #     label="95% uncertainty interval"
+    # )
+    
+    # plt.scatter(x, y, c=colors)
+    # plt.xlabel("Lambda 1")
+    # plt.ylabel("Lambda 2")
+    # plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_GPR={T_TUNE}.png"), dpi=200)
+    # plt.close()
+
+    
+    #++++++++++++++++++++++++++++++++++++++ML++++++++++++++++++++++++++++++
 
     
 
