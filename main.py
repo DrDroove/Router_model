@@ -16,9 +16,11 @@ from dataclasses import dataclass
 
 from system import *
 from events import *
+from analysis import *
 from regressions import *
 from RBF_regression import *
 from Gaussian_Process_Regression import *
+
 
 @dataclass(frozen=True)
 class SimulationParameters:
@@ -28,16 +30,10 @@ class SimulationParameters:
 
 @dataclass(frozen=True)
 class SimulationSuccess:
-    result: list[
-        tuple[
-            float, #sys_time
-            tuple[int, int], #sys_state
-            list[float], #last_mean_state_duration
-            list[int], #length_of_all_queues
-            list[float], #mean_queue_lenghs
-            list[float] #mean_wait_times
-        ]
-    ]
+    snapshots: Snapshots
+    mean_queue_length: NDArray[np.float64]
+    mean_state_duration: NDArray[np.float64]
+    mean_wait_time: NDArray[np.float64]
     params: SimulationParameters
 
 @dataclass(frozen=True)
@@ -61,7 +57,7 @@ class SimulationFailure:
 
 def run_simulation(params: SimulationParameters) -> SimulationSuccess | SimulationFailure:
     expected_group_size = PROBABILITY_OF_SMALL_GROUP*SIZE_OF_SMALL_GROUP + (1-PROBABILITY_OF_SMALL_GROUP)*SIZE_OF_BIG_GROUP
-    expected_capacity = T_END*sum(params.lambdas)*(1+expected_group_size) + (2*T_END)/(min(params.epsilons)/CONNECTION_SPEED + T_TUNE)
+    expected_capacity = int(T_END*sum(params.lambdas)*(1+expected_group_size) + (2*T_END)/(min(params.epsilons)/CONNECTION_SPEED + T_TUNE)+1)
     
     simulation = System(params.epsilons, params.TMax, expected_capacity)
     
@@ -76,19 +72,22 @@ def run_simulation(params: SimulationParameters) -> SimulationSuccess | Simulati
             if t[i]<= T_END:
                 random_size = np.random.uniform()
                 if random_size < PROBABILITY_OF_SMALL_GROUP:
-                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_SMALL_GROUP,i))
+                    simulation.schedule_event(IncomeEvent(time= t[i], number_of_calls= SIZE_OF_SMALL_GROUP, thread_number= i))
                 else:
-                    simulation.schedule_event(IncomeEvent(t[i],SIZE_OF_BIG_GROUP,i))
+                    simulation.schedule_event(IncomeEvent(time= t[i],number_of_calls= SIZE_OF_BIG_GROUP,thread_number= i))
 
-    
-    
     try:
         simulation.run()
-    except RuntimeError:
+    except RingBufferOverflowError:
         return SimulationFailure(params= params)
 
+    snapshots = simulation.get_data()
+
     return SimulationSuccess(
-        result= simulation.get_data(),
+        snapshots= snapshots,
+        mean_queue_length= calculate_mean_queue_length(snapshots),
+        mean_state_duration= calculate_mean_state_duration(snapshots),
+        mean_wait_time= calculate_mean_wait_time(snapshots),
         params= params
     )
 
@@ -786,11 +785,18 @@ def anylize_gradient_epsillons_optimization(filename):
 
 if __name__=='__main__':
 
-    tmp = run_simulation(SimulationParameters(
-        lambdas=(40,40),
-        epsilons=(100,100),
-        TMax=5
-    ))
+    tmp = run_simulation(
+        SimulationParameters(
+            lambdas=(1,1),
+            epsilons=(5,5),
+            TMax=2
+        )
+    )
+
+    if isinstance(tmp, SimulationSuccess):
+        print(tmp.mean_queue_length[-1])
+        print(tmp.mean_state_duration[-1])
+        print(tmp.mean_wait_time[-1])
 
         
 
