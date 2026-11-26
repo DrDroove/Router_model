@@ -730,6 +730,33 @@ def anylize_gradient_epsillons_optimization(filename):
     return results[index_of_min_general_wait_time][1], results[index_of_min_general_wait_time][0]
 
 
+def rotate_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    from math import sqrt
+    return [
+        ((x - y) / sqrt(2), (x + y) / sqrt(2))
+        for x, y in points
+    ]
+
+def filter_unsymmetrical_in_rotated_coords(
+        points: list[tuple[float, float]], 
+        colors: list[str], 
+        tol : float = 1e-6,
+) -> list[tuple[float, float, str]]:
+    from math import isclose
+    indexed = list(zip(enumerate(points), colors, strict=True))
+    return [
+        (x, y, color)
+        for ((i, (x, y)), color) in indexed
+        if any(
+            i != j
+            and isclose(ox, -x, abs_tol=tol)
+            and isclose(oy, y, abs_tol=tol)
+            and color == o_color
+            for ((j, (ox, oy)), o_color) in indexed
+        )
+    ]
+
+
 if __name__=='__main__':
 
     # ARRAY_OF_LAMBDAS = generate_lambda_mesh(4, 0.1)
@@ -1035,6 +1062,7 @@ if __name__=='__main__':
     
     for predicted_boundary, degree in zip(predicted_boundaries, [4, 11]):
         plt.plot(x_values, predicted_boundary, label=f"Degree {degree}")
+        
 
     plt.scatter(x, y, c=colors)
     plt.xlabel("Lambda 1")
@@ -1120,7 +1148,7 @@ if __name__=='__main__':
 
     x_values = np.linspace(0.1, 100, 10000)
     
-    predicted_boundaries = rbf.predict(x_values)
+    predicted_boundary = rbf.predict(x_values)
 
     plt.figure(figsize=(10, 10))
     
@@ -1166,6 +1194,205 @@ if __name__=='__main__':
     plt.legend()
     plt.grid(True)
     plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_GPR={T_TUNE}.png"), dpi=200)
+    plt.close()
+
+    #ROTATED----------------------------------------------------------------------------------------------
+    print("ROTATED----------------------------------------------------------------------------------------------")
+
+    rx, ry = zip(*rotate_points(list(zip(x,y))))
+    rboundary_points = rotate_points(boundary_points)
+
+    plt.scatter(rx, ry, c=colors)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.ylim(0, 85)
+    plt.title(f"Lambdas Rotated")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_rotated.png"), dpi=200)
+    plt.close()
+
+
+    filtered = filter_unsymmetrical_in_rotated_coords(
+        list(zip(rx, ry)), colors, tol=1e-6
+    )
+
+    filtered_boundary_points = filter_unsymmetrical_in_rotated_coords(
+        rboundary_points, ["same"]*len(rboundary_points), tol= 1e-6
+    )
+
+    if filtered:
+        rx, ry, fc = zip(*filtered)
+    else:
+        rx, ry, fc = [], [], []
+
+    if filtered:
+        rf_boundary_points =  [(x, y) for x, y, _ in filtered_boundary_points]
+    else:
+        rf_boundary_points = []
+
+    xb, yb = zip(*rf_boundary_points)
+    plt.scatter(rx, ry, c=fc)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.ylim(0, 85)
+    plt.title(f"Lambdas Rotated")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_rotated_and_filtered.png"), dpi=200)
+    plt.close()
+
+    
+
+
+    degrees = [2, 3, 4, 5, 6, 7,8,9,10,11, 12]
+    models = [PolynomialBoundaryRegression(degree) for degree in degrees]
+    for model in models:
+        model.fit(rf_boundary_points, dependent_axis=1)
+        print(model.get_info())
+
+    x_values = np.linspace(-100, 100, 10000)
+
+    predicted_boundaries = [models[2].predict(x_values), models[9].predict(x_values)]
+
+    plt.figure(figsize=(10, 10))
+    
+    for predicted_boundary, degree in zip(predicted_boundaries, [4, 11]):
+        plt.plot(x_values, predicted_boundary, label=f"Degree {degree}")
+
+    plt.scatter(rx, ry, c=fc)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.ylim(0, 85)
+    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Regression_ROTATED={T_TUNE}.png"), dpi=200)
+    plt.close()
+
+    #Classification regression
+    # from sklearn.model_selection import train_test_split
+    # from sklearn.metrics import (
+    #     accuracy_score,
+    #     confusion_matrix,
+    #     classification_report
+    # )
+
+    # X_train, X_test, y_train, y_test = train_test_split(
+    #     np.asarray(list(zip(rx,ry))),
+    #     np.asarray(fc, dtype=bool),
+    #     test_size=0.1,
+    #     random_state=42,
+    #     stratify=fc
+    # )
+
+    # quadratic_classifier = PolynomialBoundaryClassifier(degree=2)
+    # quadratic_classifier.fit(X_train, y_train)
+
+    # cubic_classifier = PolynomialBoundaryClassifier(degree=3)
+    # cubic_classifier.fit(X_train, y_train)
+
+    # test_predictions_quadratic = quadratic_classifier.predict(X_test)
+    # test_predictions_cubic = cubic_classifier.predict(X_test)
+
+    # print("Test accuracy:", accuracy_score(y_test, test_predictions_quadratic))
+    # print(confusion_matrix(y_test, test_predictions_quadratic))
+    # print(classification_report(y_test, test_predictions_quadratic))
+    # print("Test accuracy:", accuracy_score(y_test, test_predictions_cubic))
+    # print(confusion_matrix(y_test, test_predictions_cubic))
+    # print(classification_report(y_test, test_predictions_cubic))
+
+    # xx = np.linspace(0, 100, 1000)
+    # yy = np.linspace(0, 100, 1000)
+
+    # XX, YY = np.meshgrid(xx, yy)
+
+    # # Evaluate classifier at every grid point
+    # grid_points = np.column_stack((XX.ravel(), YY.ravel()))
+
+    # grid_results_quadratic = quadratic_classifier.decision_function(grid_points).reshape(XX.shape)
+    # grid_results_cubic = cubic_classifier.decision_function(grid_points).reshape(XX.shape)
+
+    
+    # plt.figure(figsize=(10, 10))
+    
+    # for r,color in zip([grid_results_quadratic, grid_results_cubic], ['purple', 'blue']):
+    #         plt.contour(
+    #             XX, YY, r,
+    #             levels=[0],
+    #             colors=color,
+    #             linewidths=2
+    #         )
+
+    # plt.scatter(x, y, c=colors)
+    # plt.xlabel("Lambda 1")
+    # plt.ylabel("Lambda 2")
+    # plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_Classifier_ROTATED={T_TUNE}.png"), dpi=200)
+    # plt.close()
+
+    #RBF regression 
+    rbf = RBFBoundaryRegression(
+        kernel="thin_plate_spline",
+        smoothing=0.01
+    )
+
+    rbf.fit(rf_boundary_points, dependent_axis=1)
+
+    print(rbf.get_info())
+
+    x_values = np.linspace(-100, 100, 10000)
+    
+    predicted_boundary = rbf.predict(x_values)
+
+    plt.figure(figsize=(10, 10))
+    
+    
+    plt.plot(x_values, predicted_boundary, label=f"RBF, kernel={rbf.kernel}, smoothing={rbf.smoothing}")
+
+    plt.scatter(rx, ry, c=fc)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.ylim(0, 85)
+    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_RBF_ROTATED={T_TUNE}.png"), dpi=200)
+    plt.close()
+
+    #Gaussian regression
+    gpr = GaussianProcessBoundaryRegression(kernel = 'matern', length_scale = 3.0,nu = 1.5, alpha=1e-4)
+    gpr.fit(rf_boundary_points, dependent_axis=1)
+
+    print(gpr.get_info())
+
+    x_values = np.linspace(-100, 100, 10000)
+    
+    predicted_boundaries, uncertanty = gpr.predict(x_values, return_std=True)
+
+    plt.figure(figsize=(10, 10))
+    
+    
+    plt.plot(x_values, predicted_boundary, label=f"GPR, kernel={gpr.kernel_type}, \nlength_scale={gpr.length_scale}, \nalpha={gpr.alpha}, \nnu={gpr.nu}, \nn_restarts_optimizer={gpr.n_restarts_optimizer}")
+
+    plt.fill_between(
+        x_values,
+        predicted_boundaries - 1.96 * uncertanty,
+        predicted_boundaries + 1.96 * uncertanty,
+        alpha=0.3,
+        label="95% uncertainty interval"
+    )
+    
+    plt.scatter(rx, ry, c=fc)
+    plt.xlabel("Lambda 1")
+    plt.ylabel("Lambda 2")
+    plt.ylim(0, 85)
+    plt.title(f"Lambdas vs Stationary. SPEED = {CONNECTION_SPEED}pkg/s")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, f"lambdas_vs_stationarity_2d_T_TUNE_GPR_ROTATED={T_TUNE}.png"), dpi=200)
     plt.close()
 
     
